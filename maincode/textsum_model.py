@@ -10,7 +10,8 @@ class Neuralmodel:
                  max_num_sequence,sequence_length,filter_sizes,feature_map,hidden_size,document_length,beam_width,
                  attention_size,input_y2_max_length,clip_gradients=5.0,initializer=tf.random_normal_initializer(stddev=0.1)):
         """init all hyperparameter:"""
-        self.initializer = initializer
+        self.initializer = tf.random_normal_initializer(stddev=0.1)
+        self.initializer_uniform = tf.random_uniform_initializer(minval=-0.05,maxval=0.05)
 
         """Basic"""
         self.extract_sentence_flag = extract_sentence_flag
@@ -90,20 +91,20 @@ class Neuralmodel:
 
         with tf.name_scope("lstm_cell"):
             # input gate
-            self.W_i = tf.get_variable("W_i", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer)
-            self.U_i = tf.get_variable("U_i", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer)
+            self.W_i = tf.get_variable("W_i", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer_uniform)
+            self.U_i = tf.get_variable("U_i", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer_uniform)
             self.b_i = tf.get_variable("b_i", shape=[self.hidden_size])
             # forget gate
-            self.W_f = tf.get_variable("W_f", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer)
-            self.U_f = tf.get_variable("U_f", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer)
+            self.W_f = tf.get_variable("W_f", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer_uniform)
+            self.U_f = tf.get_variable("U_f", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer_uniform)
             self.b_f = tf.get_variable("b_f", shape=[self.hidden_size])
             # cell gate
-            self.W_c = tf.get_variable("W_c", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer)
-            self.U_c = tf.get_variable("U_c", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer)
+            self.W_c = tf.get_variable("W_c", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer_uniform)
+            self.U_c = tf.get_variable("U_c", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer_uniform)
             self.b_c = tf.get_variable("b_c", shape=[self.hidden_size])
             # output gate
-            self.W_o = tf.get_variable("W_o", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer)
-            self.U_o = tf.get_variable("U_o", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer)
+            self.W_o = tf.get_variable("W_o", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer_uniform)
+            self.U_o = tf.get_variable("U_o", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer_uniform)
             self.b_o = tf.get_variable("b_o", shape=[self.hidden_size])
 
     def document_reader(self):
@@ -144,7 +145,7 @@ class Neuralmodel:
         """3.LSTM(sentence)"""
         # lstm_outputs: [batch_size, max_time, hidden_size]
         # cell_state: [batch_size, hidden_size]
-        with tf.name_scope("lstm-encoder"):
+        with tf.variable_scope("lstm-encoder", initializer=self.initializer_uniform):
             lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_size)
             lstm_cell = tf.nn.rnn_cell.DropoutWrapper(lstm_cell, output_keep_prob = self.dropout_keep_prob)
             lstm_outputs, cell_state = tf.nn.dynamic_rnn(lstm_cell, cnn_outputs, dtype = tf.float32)
@@ -158,16 +159,16 @@ class Neuralmodel:
         # dropout
         Xt = tf.nn.dropout(Xt, self.dropout_keep_prob)
         # input forget output compute
-        i_t = tf.nn.sigmoid(tf.matmul(Xt, self.W_i) + tf.matmul(h_t_minus_1, self.U_i) + self.b_i)
-        f_t = tf.nn.sigmoid(tf.matmul(Xt, self.W_f) + tf.matmul(h_t_minus_1, self.U_f) + self.b_f)
+        i_t = tf.nn.tanh(tf.matmul(Xt, self.W_i) + tf.matmul(h_t_minus_1, self.U_i) + self.b_i)
+        f_t = tf.nn.tanh(tf.matmul(Xt, self.W_f) + tf.matmul(h_t_minus_1, self.U_f) + self.b_f)
         c_t_candidate = tf.nn.tanh(tf.matmul(Xt, self.W_c) + tf.matmul(h_t_minus_1, self.U_c) + self.b_c)
         c_t = f_t * c_t_minus_1 + i_t * c_t_candidate
-        o_t = tf.nn.sigmoid(tf.matmul(Xt, self.W_o) + tf.matmul(h_t_minus_1, self.U_o) + self.b_o)
+        o_t = tf.nn.tanh(tf.matmul(Xt, self.W_o) + tf.matmul(h_t_minus_1, self.U_o) + self.b_o)
         h_t = o_t * tf.nn.tanh(c_t)
         # prob compute
         concat_h = tf.concat([At, h_t], axis=1)
         concat_h_dropout = tf.nn.dropout(concat_h, keep_prob=self.dropout_keep_prob)
-        p_t = tf.layers.dense(concat_h_dropout, 1, activation=tf.sigmoid)
+        p_t = tf.layers.dense(concat_h_dropout, 1, activation=tf.tanh)
 
         return h_t, c_t, p_t
 
@@ -212,7 +213,7 @@ class Neuralmodel:
             concat_outputs1 = tf.concat([decoder_outputs, self.attention_state], axis = 2)
             concat_outputs2 = tf.reshape(concat_outputs1, [-1, self.max_num_sequence * self.hidden_size * 2])
             concat_outputs3 = tf.nn.dropout(concat_outputs2, keep_prob=self.dropout_keep_prob)
-            logits = tf.layers.dense(concat_outputs3, self.max_num_sequence, activation=tf.sigmoid, use_bias=True)
+            logits = tf.layers.dense(concat_outputs3, self.max_num_sequence, activation=tf.tanh)
         return logits
 
     def word_extractor(self):
