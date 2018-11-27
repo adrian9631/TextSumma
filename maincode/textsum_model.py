@@ -52,13 +52,14 @@ class Neuralmodel:
         if extract_sentence_flag:
             self.input_y1 = tf.placeholder(tf.int32, [None, self.max_num_sequence], name="input_y_sentence")
             self.input_y1_length = tf.placeholder(tf.int32, [None], name="input_y_length")
-            self.mask = tf.sequence_mask(self.input_y1_length, self.max_num_sequence, dtype=tf.float32, name='masks')
+            self.mask = tf.sequence_mask(self.input_y1_length, self.max_num_sequence, dtype=tf.float32, name='input_y_mask')
+            self.cur_learning = tf.placeholder(tf.bool, name="use_cur_lr_strategy")
         else:
             self.input_y2_length = tf.placeholder(tf.int32, [None], name="input_y_word_length")
             self.input_y2 = tf.placeholder(tf.int32, [None, self.input_y2_max_length], name="input_y_word")
             self.input_decoder_x = tf.placeholder(tf.int32, [None, self.input_y2_max_length], name="input_decoder_x")
             self.value_decoder_x = tf.placeholder(tf.int32, [None, self.document_length], name="value_decoder_x")
-            self.mask = tf.sequence_mask(self.input_y2_length, self.input_y2_max_length, dtype=tf.float32, name='masks')
+            self.mask = tf.sequence_mask(self.input_y2_length, self.input_y2_max_length, dtype=tf.float32, name='input_y2_mask')
 
         """Count"""
         self.global_step = tf.Variable(0, trainable=False, name='Global_step')
@@ -83,13 +84,14 @@ class Neuralmodel:
             self.loss_val = self.loss_word()
 
         self.train_op = self.train()
+        self.merge = tf.summary.merge_all()
 
     def instantiate_weights(self):
-        with tf.name_scope("embedding"):
-            self.Embedding = tf.get_variable("Embedding",shape=[self.vocab_size, self.embed_size],initializer=self.initializer)
-            self.Embedding_ = tf.get_variable("Embedding_", shape=[2, self.hidden_size], initializer=self.initializer)
+        with tf.name_scope("Embedding"):
+            self.Embedding = tf.get_variable("embedding",shape=[self.vocab_size, self.embed_size],initializer=self.initializer)
+            self.Embedding_ = tf.get_variable("embedding_", shape=[2, self.hidden_size], initializer=self.initializer)
 
-        with tf.name_scope("lstm_cell"):
+        with tf.name_scope("Cell"):
             # input gate
             self.W_i = tf.get_variable("W_i", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer_uniform)
             self.U_i = tf.get_variable("U_i", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer_uniform)
@@ -125,27 +127,28 @@ class Neuralmodel:
         # pooled: [max_num_sequence, 1, 1, num_filters]
         # pooled_temp: [max_num_sequence, num_filters * class_filters]
         # cnn_outputs: [batch_size, max_num_sequence, num_filters * class_filters]
-        pooled_outputs = []
-        for conv_s in embedded_words:
-            pooled_temp = []
-            for i, filter_size in enumerate(self.filter_sizes):
-                with tf.variable_scope("convolution-pooling-%s" % filter_size, reuse=tf.AUTO_REUSE):
-                    filter=tf.get_variable("filter-%s"%filter_size,[filter_size,self.embed_size,1,self.feature_map[i]],initializer=self.initializer)
-                    conv=tf.nn.conv2d(conv_s, filter, strides=[1,1,1,1], padding="VALID",name="conv")
-                    conv=tf.contrib.layers.batch_norm(conv, is_training = self.is_training, scope='cnn_bn_')
-                    b=tf.get_variable("b-%s"%filter_size,[self.feature_map[i]])
-                    h=tf.nn.tanh(tf.nn.bias_add(conv,b),"tanh")
-                    pooled=tf.nn.max_pool(h, ksize=[1,self.sequence_length-filter_size+1,1,1], strides=[1,1,1,1], padding='VALID',name="pool")
-                    pooled_temp.append(pooled)
-            pooled_temp = tf.concat(pooled_temp, axis=3)
-            pooled_temp = tf.reshape(pooled_temp, [-1, self.hidden_size])
-            pooled_outputs.append(pooled_temp)
-        cnn_outputs = tf.stack(pooled_outputs, axis=0)
+        with tf.name_scope("CNN-Layer-Encoder"):
+            pooled_outputs = []
+            for conv_s in embedded_words:
+                pooled_temp = []
+                for i, filter_size in enumerate(self.filter_sizes):
+                    with tf.variable_scope("convolution-pooling-%s" % filter_size, reuse=tf.AUTO_REUSE):
+                        filter=tf.get_variable("filter-%s"%filter_size,[filter_size,self.embed_size,1,self.feature_map[i]],initializer=self.initializer)
+                        conv=tf.nn.conv2d(conv_s, filter, strides=[1,1,1,1], padding="VALID",name="conv")
+                        conv=tf.contrib.layers.batch_norm(conv, is_training = self.is_training, scope='cnn_bn_')
+                        b=tf.get_variable("b-%s"%filter_size,[self.feature_map[i]])
+                        h=tf.nn.tanh(tf.nn.bias_add(conv,b),"tanh")
+                        pooled=tf.nn.max_pool(h, ksize=[1,self.sequence_length-filter_size+1,1,1], strides=[1,1,1,1], padding='VALID',name="pool")
+                        pooled_temp.append(pooled)
+                pooled_temp = tf.concat(pooled_temp, axis=3)
+                pooled_temp = tf.reshape(pooled_temp, [-1, self.hidden_size])
+                pooled_outputs.append(pooled_temp)
+            cnn_outputs = tf.stack(pooled_outputs, axis=0)
 
         """3.LSTM(sentence)"""
         # lstm_outputs: [batch_size, max_time, hidden_size]
         # cell_state: [batch_size, hidden_size]
-        with tf.variable_scope("lstm-encoder", initializer=self.initializer_uniform):
+        with tf.variable_scope("LSTM-Layer-Encoder", initializer=self.initializer_uniform):
             lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_size)
             lstm_cell = tf.nn.rnn_cell.DropoutWrapper(lstm_cell, output_keep_prob = self.dropout_keep_prob)
             lstm_outputs, cell_state = tf.nn.dynamic_rnn(lstm_cell, cnn_outputs, dtype = tf.float32)
@@ -153,8 +156,8 @@ class Neuralmodel:
 
     def lstm_single_step(self, St, At, h_t_minus_1, c_t_minus_1, p_t_minus_1):
 
-        # Xt = p_t_minus_1 * St
         p_t_minus_1 = tf.reshape(p_t_minus_1, [-1, 1])
+        # Xt = p_t_minus_1 * St
         Xt = tf.multiply(p_t_minus_1, St)
         # dropout
         Xt = tf.nn.dropout(Xt, self.dropout_keep_prob)
@@ -166,9 +169,10 @@ class Neuralmodel:
         o_t = tf.nn.tanh(tf.matmul(Xt, self.W_o) + tf.matmul(h_t_minus_1, self.U_o) + self.b_o)
         h_t = o_t * tf.nn.tanh(c_t)
         # prob compute
-        concat_h = tf.concat([At, h_t], axis=1)
-        concat_h_dropout = tf.nn.dropout(concat_h, keep_prob=self.dropout_keep_prob)
-        p_t = tf.layers.dense(concat_h_dropout, 1, activation=tf.tanh)
+        with tf.name_scope("Score_Layer"):
+            concat_h = tf.concat([At, h_t], axis=1)
+            concat_h_dropout = tf.nn.dropout(concat_h, keep_prob=self.dropout_keep_prob)
+            p_t = tf.layers.dense(concat_h_dropout, 1, activation=tf.sigmoid)
 
         return h_t, c_t, p_t
 
@@ -179,41 +183,34 @@ class Neuralmodel:
         # At: encoder LSTM output (document level)
         # St: encoder CNN output (sentence level)
         # probability value: [p_t = activation(MLP(h_t:At)) for h_t in h_t_steps ]
+        with tf.name_scope("LSTM-Layer-Decoder"):
+            # initialize
+            h_t_lstm_list = []
+            p_t_lstm_list = []
+            lstm_tuple = self.initial_state
+            c_t_0 = lstm_tuple[0]
+            h_t_0 = lstm_tuple[1]
+            p_t_0 = tf.ones((self.batch_size))
+            cnn_outputs = tf.split(self.cnn_outputs, self.max_num_sequence, axis=1)
+            cnn_outputs = [tf.squeeze(i, axis=1) for i in cnn_outputs]
+            attention_state = tf.split(self.attention_state, self.max_num_sequence, axis=1)
+            attention_state = [tf.squeeze(i, axis=1) for i in attention_state]
+            # first step
+            start_tokens = tf.zeros([self.batch_size], tf.int32) # id for ['GO']
+            St_0 = tf.nn.embedding_lookup(self.Embedding_, start_tokens)
+            #tf.scalar_mul(St, St)
+            At_0 = attention_state[0]
+            h_t, c_t, p_t = self.lstm_single_step(St_0, At_0, h_t_0, c_t_0, p_t_0)
+            p_t_lstm_list.append(p_t)
+            # next steps
+            for time_step, merge in enumerate(zip(cnn_outputs[:-1], attention_state[1:])):
+                St, At = merge[0], merge[1]
+                p_t = tf.cond(self.cur_learning, lambda: tf.cast(self.input_y1[:,time_step:time_step+1], dtype=tf.float32), lambda: p_t)
+                h_t, c_t, p_t = self.lstm_single_step(St, At, h_t, c_t, p_t)
+                p_t_lstm_list.append(p_t)
+            # results
+            logits = tf.concat(p_t_lstm_list, axis=1)
 
-        # initialize
-        h_t_lstm_list = []
-        lstm_tuple = self.initial_state
-        c_t = lstm_tuple[0]
-        h_t = lstm_tuple[1]
-        p_t = tf.ones((self.batch_size))
-        cnn_outputs = tf.split(self.cnn_outputs, self.max_num_sequence, axis=1)
-        cnn_outputs = [tf.squeeze(i, axis=1) for i in cnn_outputs]
-        attention_state = tf.split(self.attention_state, self.max_num_sequence, axis=1)
-        attention_state = [tf.squeeze(i, axis=1) for i in attention_state]
-        # first step
-        start_tokens = tf.zeros([self.batch_size], tf.int32) # id for ['GO']
-        St = tf.nn.embedding_lookup(self.Embedding_, start_tokens)
-        #tf.scalar_mul(St, St)
-        At = attention_state[0]
-        h_t, c_t, p_t = self.lstm_single_step(St, At, h_t, c_t, p_t)
-        h_t_lstm_list.append(h_t)
-        # next steps
-        for time_step, merge in enumerate(zip(cnn_outputs[:-1], attention_state[1:])):
-            St, At = merge[0], merge[1]
-            h_t, c_t, p_t = self.lstm_single_step(St, At, h_t, c_t, p_t)
-            h_t_lstm_list.append(h_t)
-        # results
-        decoder_outputs = tf.stack(h_t_lstm_list, axis=1)
-
-        """4.1.2 MLP(score)"""
-        # concat_outputs1: [batch_size, max_num_sequence, hidden_size*2]
-        # concat_outputs2: [batch_size, max_num_sequence*(hidden_size*2)]
-        # logits: [batch_size, max_num_sequence]
-        with tf.name_scope("mlp-sentence-decoder"):
-            concat_outputs1 = tf.concat([decoder_outputs, self.attention_state], axis = 2)
-            concat_outputs2 = tf.reshape(concat_outputs1, [-1, self.max_num_sequence * self.hidden_size * 2])
-            concat_outputs3 = tf.nn.dropout(concat_outputs2, keep_prob=self.dropout_keep_prob)
-            logits = tf.layers.dense(concat_outputs3, self.max_num_sequence, activation=tf.tanh)
         return logits
 
     def word_extractor(self):
@@ -288,7 +285,7 @@ class Neuralmodel:
             logits, final_sequence_lengths = self.word_extractor()
             return logits, final_sequence_lengths
 
-    def loss_sentence(self, label_smoothing=0,l2_lambda=0.001):
+    def loss_sentence1(self, label_smoothing=0,l2_lambda=0.001):
         # multi_class_labels: [batch_size, max_num_sequence]
         # logits: [batch_size, max_num_sequence]
         # losses: [batch_size, max_num_sequence]
@@ -296,8 +293,7 @@ class Neuralmodel:
         with tf.name_scope("loss_sentence"):
             logits = tf.convert_to_tensor(self.logits)
             labels = tf.cast(self.input_y1, logits.dtype)
-            if label_smoothing > 0:
-                labels = (labels * (1 - label_smoothing) + 0.5 * label_smoothing)
+            if label_smoothing > 0:labels = (labels * (1 - label_smoothing) + 0.5 * label_smoothing)
             losses = tf.nn.sigmoid_cross_entropy_with_logits(labels=labels, logits=self.logits)
             mask = self.mask
             losses *= mask
@@ -309,13 +305,28 @@ class Neuralmodel:
             loss = loss + l2_losses
         return loss
 
-    def loss_sentence2(self, l2_lambda=0.001):
+    def loss_sentence(self, l2_lambda=0.001):
         # multi_class_labels: [batch_size, max_num_sequence]
         # logits: [batch_size, max_num_sequence]
         # losses: [batch_size, max_num_sequence]
-        self.loss_compute()
+        # origin:sigmoid log: max(x, 0) + x * z + log(1 + exp(-x))
+        # z*-log(x)+(1-z)*-log(1-x)
+        # z=0 --> -log(1-x)
+        # z=1 --> -log(x)
         with tf.name_scope("loss_sentence"):
-            losses = tf.losses.sigmoid_cross_entropy(multi_class_labels=self.input_y1, logits=self.logits)
+            logits = tf.convert_to_tensor(self.logits)
+            labels = tf.cast(self.input_y1, logits.dtype)
+            zeros = tf.zeros_like(labels, dtype=labels.dtype)
+            ones = tf.ones_like(logits, dtype=logits.dtype)
+            cond  = ( labels > zeros )
+            logits_ = tf.where(cond, logits, ones-logits)
+            logits_log = tf.log(logits)
+            losses = -logits_log
+            mask = self.mask
+            losses *= mask
+            losses = tf.reduce_sum(losses, axis = 1)
+            total_size = tf.reduce_sum(mask, axis = 1)
+            losses = tf.divide(losses, total_size)
             loss = tf.reduce_mean(losses)
             l2_losses = tf.add_n([tf.nn.l2_loss(v) for v in tf.trainable_variables() if 'bias' not in v.name]) * l2_lambda
             loss = loss + l2_losses
@@ -333,12 +344,13 @@ class Neuralmodel:
         return loss
 
     def train(self):
-        learning_rate = tf.train.exponential_decay(self.learning_rate, self.global_step, self.decay_step, self.decay_rate, staircase=True)
-        self.learning_rate = learning_rate
-        optimizer = tf.train.AdamOptimizer(learning_rate)
-        gradients, variables = zip(*optimizer.compute_gradients(self.loss_val))
-        gradients, _ = tf.clip_by_global_norm(gradients, self.clip_gradients)
-        update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-        with tf.control_dependencies(update_ops):
-            train_op = optimizer.apply_gradients(zip(gradients, variables))
+        with tf.name_scope("train_op"):
+            learning_rate = tf.train.exponential_decay(self.learning_rate, self.global_step, self.decay_step, self.decay_rate, staircase=True)
+            self.learning_rate = learning_rate
+            optimizer = tf.train.AdamOptimizer(learning_rate)
+            gradients, variables = zip(*optimizer.compute_gradients(self.loss_val))
+            gradients, _ = tf.clip_by_global_norm(gradients, self.clip_gradients)
+            update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+            with tf.control_dependencies(update_ops):
+                train_op = optimizer.apply_gradients(zip(gradients, variables))
         return train_op

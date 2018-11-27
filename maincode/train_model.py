@@ -13,6 +13,7 @@ from tqdm import tqdm
 #configuration
 FLAGS=tf.app.flags.FLAGS
 
+tf.app.flags.DEFINE_string("log_path","../log/","path of summary log.")
 tf.app.flags.DEFINE_string("tra_data_path","../src/neuralsum/dailymail/tra/","path of training data.")
 tf.app.flags.DEFINE_string("tst_data_path","../src/neuralsum/dailymail/tst/","path of test data.")
 tf.app.flags.DEFINE_string("val_data_path","../src/neuralsum/dailymail/val/","path of validation data.")
@@ -21,6 +22,8 @@ tf.app.flags.DEFINE_string("vocab_path","../cache/vocab","path of vocab frequenc
 tf.app.flags.DEFINE_integer("vocab_size",200000,"maximum vocab size.")
 
 tf.app.flags.DEFINE_float("learning_rate",0.001,"learning rate")
+
+tf.app.flags.DEFINE_integer("cur_learning_step", 3000, "how many steps before using the true sentence labels instead of the prediction.")
 tf.app.flags.DEFINE_integer("decay_step", 3000, "how many steps before decay learning rate.")
 tf.app.flags.DEFINE_float("decay_rate", 0.1, "Rate of decay for learning rate.")
 tf.app.flags.DEFINE_string("ckpt_dir","../ckpt/","checkpoint location for the model")
@@ -40,7 +43,7 @@ tf.app.flags.DEFINE_integer("validate_every", 1, "Validate every validate_every 
 tf.app.flags.DEFINE_boolean("use_embedding",True,"whether to use embedding or not.")
 tf.app.flags.DEFINE_string("word2vec_model_path","../w2v/benchmark_sg1_e150_b.vector","word2vec's vocabulary and vectors")
 filter_sizes = [1,2,3,4,5,6,7]
-feature_map = [50,50,50,50,50,25,25]
+feature_map = [50,70,70,40,30,20,20]
 
 def main(_):
     config = tf.ConfigProto()
@@ -57,6 +60,7 @@ def main(_):
         else:
             print('Initializing Variables')
             sess.run(tf.global_variables_initializer())
+            summary_writer = tf.summary.FileWriter(logdir=FLAGS.log_path, graph=sess.graph)
             if FLAGS.use_embedding: #load pre-trained word embedding
                 assign_pretrained_word_embedding(sess, FLAGS.vocab_path, FLAGS.entity_path, FLAGS.vocab_size, Model,FLAGS.word2vec_model_path)
         curr_epoch=sess.run(Model.epoch_step)
@@ -76,30 +80,41 @@ def main(_):
                 feed_dict[Model.input_y1] = batch['label_sentences']
                 feed_dict[Model.input_y1_length] = batch['article_len']
                 feed_dict[Model.is_training] = True
-                curr_loss,lr,_,_=sess.run([Model.loss_val,Model.learning_rate,Model.train_op,Model.global_increment],feed_dict)
+                feed_dict[Model.cur_learning] = True if FLAGS.cur_learning_step > iteration else False
+                curr_loss,lr,_,_,merge=sess.run([Model.loss_val,Model.learning_rate,Model.train_op,Model.global_increment,Model.merge],feed_dict)
+                summary = sess.run(merge)
+                summary_writer.add_summary(summary, global_step=iteration)
                 loss,counter=loss+curr_loss,counter+1
                 if counter %50==0:
                     print("Epoch %d\tBatch %d\tTrain Loss:%.3f\tLearning rate:%.5f" %(epoch,counter,loss/float(counter),lr))
-                if iteration % 300 == 0: # eval every 3000 steps.
+                ########################################################################################################
+                if iteration % 2000 == 0: # eval every 3000 steps.
                     eval_loss, acc_score = do_eval(sess, Model)
                     print("Epoch %d Validation Loss:%.3f\t Acc:%.3f" % (epoch, eval_loss, acc_score))
+                    # TODO eval_loss, f1_score = do_eval(sess, Model, testX, testY,iteration,num_classes)
+                    # TODO print("Epoch %d Validation Loss:%.3f\tF1 Score:%.3f" % (epoch, eval_loss, f1_score))
+                    # save model to checkpoint
                     save_path = FLAGS.ckpt_dir + "model.ckpt"
                     saver.save(sess, save_path, global_step=epoch)
+                ########################################################################################################
+            #epoch increment
             print("going to increment epoch counter....")
             sess.run(Model.epoch_increment)
             print(epoch,FLAGS.validate_every,(epoch % FLAGS.validate_every==0))
             if epoch % FLAGS.validate_every==0:
                 # TODO eval_loss,f1_score=do_eval(sess,Model,testX,testY,iteration,num_classes)
                 # TODO print("Epoch %d Validation Loss:%.3f\tF1 Score:%.3f" % (epoch,eval_loss,f1_score))
+                #save model to checkpoint
                 save_path=FLAGS.ckpt_dir+"model.ckpt"
                 saver.save(sess,save_path,global_step=epoch)
+        summary_writer.close()
         # TODO test_loss,f1_score = do_eval(sess, Model, testX, testY, iteration, num_classes)
         # TODO print("Test Loss:%.3f" % (test_loss))
 
 def do_eval(sess, Model):
     eval_loss, eval_counter, acc_score= 0.0, 0, 0.0
     batch_size = 20
-    valid_gen = Batch(FLAGS.val_data_path,FLAGS.vocab_path,FLAGS.entity_path,batch_size,FLAGS)
+    valid_gen = Batch(FLAGS.tst_data_path,FLAGS.vocab_path,FLAGS.entity_path,batch_size,FLAGS)
     for batch in valid_gen:
         feed_dict={}
         feed_dict[Model.dropout_keep_prob] = 1.0
@@ -107,6 +122,7 @@ def do_eval(sess, Model):
         feed_dict[Model.input_y1] = batch['label_sentences']
         feed_dict[Model.input_y1_length] = batch['article_len']
         feed_dict[Model.is_training] = False
+        feed_dict[Model.cur_learning] = False
         curr_eval_loss,logits=sess.run([Model.loss_val,Model.logits],feed_dict)
         curr_acc_score = compute_rouge(logits, batch)
         acc_score += curr_acc_score
