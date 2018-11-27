@@ -96,10 +96,12 @@ class Neuralmodel:
             self.W_i = tf.get_variable("W_i", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer_uniform)
             self.U_i = tf.get_variable("U_i", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer_uniform)
             self.b_i = tf.get_variable("b_i", shape=[self.hidden_size])
+            tf.summary.histogram("bias_input", self.b_i)
             # forget gate
             self.W_f = tf.get_variable("W_f", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer_uniform)
             self.U_f = tf.get_variable("U_f", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer_uniform)
             self.b_f = tf.get_variable("b_f", shape=[self.hidden_size])
+            tf.summary.histogram("bias_forget", self.b_f)
             # cell gate
             self.W_c = tf.get_variable("W_c", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer_uniform)
             self.U_c = tf.get_variable("U_c", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer_uniform)
@@ -168,6 +170,7 @@ class Neuralmodel:
         c_t = f_t * c_t_minus_1 + i_t * c_t_candidate
         o_t = tf.nn.tanh(tf.matmul(Xt, self.W_o) + tf.matmul(h_t_minus_1, self.U_o) + self.b_o)
         h_t = o_t * tf.nn.tanh(c_t)
+        tf.summary.histogram("hidden_z", h_t)
         # prob compute
         with tf.name_scope("Score_Layer"):
             concat_h = tf.concat([At, h_t], axis=1)
@@ -328,7 +331,9 @@ class Neuralmodel:
             total_size = tf.reduce_sum(mask, axis = 1)
             losses = tf.divide(losses, total_size)
             loss = tf.reduce_mean(losses)
+            tf.summary.scalar("loss", loss)
             l2_losses = tf.add_n([tf.nn.l2_loss(v) for v in tf.trainable_variables() if 'bias' not in v.name]) * l2_lambda
+            tf.summary.scalar("l2_loss", l2_losses)
             loss = loss + l2_losses
         return loss
 

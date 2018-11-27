@@ -81,8 +81,7 @@ def main(_):
                 feed_dict[Model.input_y1_length] = batch['article_len']
                 feed_dict[Model.is_training] = True
                 feed_dict[Model.cur_learning] = True if FLAGS.cur_learning_step > iteration else False
-                curr_loss,lr,_,_,merge=sess.run([Model.loss_val,Model.learning_rate,Model.train_op,Model.global_increment,Model.merge],feed_dict)
-                summary = sess.run(merge)
+                curr_loss,lr,_,_,summary=sess.run([Model.loss_val,Model.learning_rate,Model.train_op,Model.global_increment,Model.merge],feed_dict)
                 summary_writer.add_summary(summary, global_step=iteration)
                 loss,counter=loss+curr_loss,counter+1
                 if counter %50==0:
