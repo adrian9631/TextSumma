@@ -96,12 +96,10 @@ class Neuralmodel:
             self.W_i = tf.get_variable("W_i", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer_uniform)
             self.U_i = tf.get_variable("U_i", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer_uniform)
             self.b_i = tf.get_variable("b_i", shape=[self.hidden_size])
-            tf.summary.histogram("bias_input", self.b_i)
             # forget gate
             self.W_f = tf.get_variable("W_f", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer_uniform)
             self.U_f = tf.get_variable("U_f", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer_uniform)
             self.b_f = tf.get_variable("b_f", shape=[self.hidden_size])
-            tf.summary.histogram("bias_forget", self.b_f)
             # cell gate
             self.W_c = tf.get_variable("W_c", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer_uniform)
             self.U_c = tf.get_variable("U_c", shape=[self.hidden_size,self.hidden_size], initializer=self.initializer_uniform)
@@ -151,7 +149,7 @@ class Neuralmodel:
         # lstm_outputs: [batch_size, max_time, hidden_size]
         # cell_state: [batch_size, hidden_size]
         with tf.variable_scope("LSTM-Layer-Encoder", initializer=self.initializer_uniform):
-            lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_size)
+            lstm_cell = tf.nn.rnn_cell.LSTMCell(self.hidden_size)
             lstm_cell = tf.nn.rnn_cell.DropoutWrapper(lstm_cell, output_keep_prob = self.dropout_keep_prob)
             lstm_outputs, cell_state = tf.nn.dynamic_rnn(lstm_cell, cnn_outputs, dtype = tf.float32)
         return cnn_outputs, lstm_outputs, cell_state
@@ -170,6 +168,10 @@ class Neuralmodel:
         c_t = f_t * c_t_minus_1 + i_t * c_t_candidate
         o_t = tf.nn.tanh(tf.matmul(Xt, self.W_o) + tf.matmul(h_t_minus_1, self.U_o) + self.b_o)
         h_t = o_t * tf.nn.tanh(c_t)
+        tf.summary.histogram("W_f", self.W_f)
+        tf.summary.histogram("U_f", self.U_f)
+        tf.summary.histogram("W_i", self.W_i)
+        tf.summary.histogram("U_i", self.U_i)
         tf.summary.histogram("hidden_z", h_t)
         # prob compute
         with tf.name_scope("Score_Layer"):
@@ -201,15 +203,16 @@ class Neuralmodel:
             # first step
             start_tokens = tf.zeros([self.batch_size], tf.int32) # id for ['GO']
             St_0 = tf.nn.embedding_lookup(self.Embedding_, start_tokens)
-            #tf.scalar_mul(St, St)
             At_0 = attention_state[0]
             h_t, c_t, p_t = self.lstm_single_step(St_0, At_0, h_t_0, c_t_0, p_t_0)
+            tf.summary.histogram("prob_t", p_t)
             p_t_lstm_list.append(p_t)
             # next steps
             for time_step, merge in enumerate(zip(cnn_outputs[:-1], attention_state[1:])):
                 St, At = merge[0], merge[1]
                 p_t = tf.cond(self.cur_learning, lambda: tf.cast(self.input_y1[:,time_step:time_step+1], dtype=tf.float32), lambda: p_t)
                 h_t, c_t, p_t = self.lstm_single_step(St, At, h_t, c_t, p_t)
+                tf.summary.histogram("prob_t", p_t)
                 p_t_lstm_list.append(p_t)
             # results
             logits = tf.concat(p_t_lstm_list, axis=1)
@@ -222,17 +225,13 @@ class Neuralmodel:
         with tf.name_scope("attention-word-decoder"):
             """4.2 beam search preparation"""
             attention_state = tf.contrib.seq2seq.tile_batch(self.attention_state, multiplier=self.beam_width)
-            encoder_inputs_length = tf.contrib.seq2seq.tile_batch(self.max_num_sequence, multiplier=self.beam_width)
-            encoder_final_state = nest.map_structure(lambda s: seq2seq.tile_batch(s, self.beam_width), self.initial_state)
+            encoder_inputs_length = tf.contrib.seq2seq.tile_batch(self.max_num_sequence * tf.ones([self.batch_size], dtype=tf.int32), multiplier=self.beam_width)
+            encoder_final_state = tf.contrib.framework.nest.map_structure(lambda s: tf.contrib.seq2seq.tile_batch(s, self.beam_width), self.initial_state)
             """4.2 Attention(Bahdanau)"""
             # building attention cell
-            lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_size)
+            lstm_cell = tf.nn.rnn_cell.LSTMCell(self.hidden_size)
             lstm_cell = tf.nn.rnn_cell.DropoutWrapper(lstm_cell, output_keep_prob=self.dropout_keep_prob)
             attention_mechanism1 = attention_wrapper.BahdanauAttention(
-            num_units=self.hidden_size, memory=attention_state, memory_sequence_length=encoder_inputs_length
-            )
-            attention_cell = attention_wrapper.AttentionWrapper(
-            cell=lstm_cell, attention_mechanism=attention_mechanism1, attention_layer_size=self.attention_size,                             \
             num_units=self.hidden_size, memory=attention_state, memory_sequence_length=encoder_inputs_length
             )
             attention_cell = attention_wrapper.AttentionWrapper(
@@ -249,13 +248,13 @@ class Neuralmodel:
             values_decoder_embedded = tf.nn.embedding_lookup(self.Embedding, self.value_decoder_x)
 
             def training_decode():
-                helper = tf.contrib.seq2seq.TrainingHelper(inputs=inputs_decoder_embedded, sequence_length=self.decoder_length, time_major=False, name="training_helper")
+                helper = tf.contrib.seq2seq.TrainingHelper(inputs=inputs_decoder_embedded, sequence_length=self.max_num_sequence * tf.ones([self.batch_size], dtype=tf.int32), time_major=False, name="training_helper")
                 training_decoder = tf.contrib.seq2seq.BasicDecoder(cell=attention_cell,helper=helper,initial_state=decoder_initial_state,output_layer=None)
                 decoder_outputs, _, _ = tf.contrib.seq2seq.dynamic_decode(decoder=training_decoder,output_time_major=False,impute_finished=True,maximum_iterations=self.input_y2_max_length)
                 return decoder_outputs
             def beamsearch_decode():
-                start_tokens=tf.ones([self.batch_size,], tf.int32) * 2 #self.word_to_idx['START']
-                end_token= 3 #self.word_to_idx['STOP']
+                start_tokens=tf.ones([self.batch_size,], tf.int32) * 2
+                end_token= 3
                 inference_decoder = BeamSearchDecoder(cell=attention_cell,embedding=values_decoder_embedded,start_tokens=start_tokens,end_token=end_token,initial_state=decoder_initial_state,beam_width=self.beam_width,output_layer=None)
                 decoder_outputs, _, final_sequence_lengths = tf.contrib.seq2seq.dynamic_decode(decoder=inference_decoder,output_time_major=False,impute_finished=True,maximum_iterations=self.input_y2_max_length)
                 return decoder_outputs
@@ -330,11 +329,11 @@ class Neuralmodel:
             losses = tf.reduce_sum(losses, axis = 1)
             total_size = tf.reduce_sum(mask, axis = 1)
             losses = tf.divide(losses, total_size)
-            loss = tf.reduce_mean(losses)
+            loss = tf.reduce_sum(losses)
             tf.summary.scalar("loss", loss)
-            l2_losses = tf.add_n([tf.nn.l2_loss(v) for v in tf.trainable_variables() if 'bias' not in v.name]) * l2_lambda
-            tf.summary.scalar("l2_loss", l2_losses)
-            loss = loss + l2_losses
+            #l2_losses = tf.add_n([tf.nn.l2_loss(v) for v in tf.trainable_variables() if 'bias' not in v.name]) * l2_lambda
+            #tf.summary.scalar("l2_loss", l2_losses)
+            #loss = loss + l2_losses
         return loss
 
     def loss_word(self, l2_lambda=0.001):
