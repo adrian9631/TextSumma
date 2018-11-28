@@ -29,7 +29,7 @@ def Batch(data_path, vocab_path, entity_path, size, hps):
     for cnt, filename in enumerate(filenames):
         pickle_path = os.path.join(data_path, filename)
         res = load(pickle_path)
-        label, value, words, len_a, targets, inputs, lens = Example(res['article'],res['abstract'],res['label'],res['entity'], vocab, hps)
+        label, value, words, len_a, targets, inputs, lens = Example(res['article'],res['abstract'],res['label'],res['entity'], vocab, hps) # TODO
         label_sentences.append(label)
         article_value.append(value)
         article_words.append(words)
@@ -87,6 +87,16 @@ def Example(article, abstracts, label, entity, vocab, hps):
     # padding
     abstracts_inputs = pad_sequences(abstracts_inputs, maxlen=hps.input_y2_max_length, value=pad_id)
     abstracts_targets = pad_sequences(abstracts_targets, maxlen=hps.input_y2_max_length, value=pad_id)
+    # sentence level padding
+    pad_abstracts = np.expand_dims(np.zeros(hps.input_y2_max_length, dtype=np.int32), axis = 0)
+    if abstracts_inputs.shape[0] > hps.max_num_abstract:
+        abstracts_inputs = abstracts_inputs[:hps.max_num_abstract]
+    while abstracts_inputs.shape[0] < hps.max_num_abstract:
+        abstracts_inputs = np.concatenate((abstracts_inputs, pad_abstracts))
+    if abstracts_targets.shape[0] > hps.max_num_abstract:
+        abstracts_targets = abstracts_targets[:hps.max_num_abstract]
+    while abstracts_inputs.shape[0] < hps.max_num_abstract:
+        abstracts_targets = np.concatenate((abstracts_targets, pad_abstracts))
     # mask
     abstracts_len = abstract2len(abstracts)
 
@@ -132,6 +142,8 @@ class Vocab(object):
         return self._word_to_id[word]
 
     def id2word(self, word_id):
+        #if word_id not in self._id_to_word:
+        #    raise ValueError('Id not found in vocab: %d' % word_id)
         return self._id_to_word[word_id]
 
     def size(self):

@@ -23,20 +23,21 @@ tf.app.flags.DEFINE_integer("vocab_size",200000,"maximum vocab size.")
 
 tf.app.flags.DEFINE_float("learning_rate",0.001,"learning rate")
 
-tf.app.flags.DEFINE_integer("cur_learning_step", 3000, "how many steps before using the true sentence labels instead of the prediction.")
+tf.app.flags.DEFINE_integer("cur_learning_step", 500, "how many steps before using the true sentence labels instead of the prediction.")
 tf.app.flags.DEFINE_integer("decay_step", 3000, "how many steps before decay learning rate.")
 tf.app.flags.DEFINE_float("decay_rate", 0.1, "Rate of decay for learning rate.")
 tf.app.flags.DEFINE_string("ckpt_dir","../ckpt/","checkpoint location for the model")
 tf.app.flags.DEFINE_integer("batch_size", 20, "Batch size for training/evaluating.")
 tf.app.flags.DEFINE_integer("embed_size", 150,"embedding size")
 tf.app.flags.DEFINE_integer("input_y2_max_length", 40,"the max length of a sentence in abstracts")
-tf.app.flags.DEFINE_integer("max_num_sequence", 70,"the max number of sequence in documents")
+tf.app.flags.DEFINE_integer("max_num_sequence", 50,"the max number of sequence in documents")
+tf.app.flags.DEFINE_integer("max_num_abstract", 4,"the max number of abstract in documents")
 tf.app.flags.DEFINE_integer("sequence_length", 125,"the max length of a sentence in documents")
 tf.app.flags.DEFINE_integer("hidden_size", 300,"the hidden size of the encoder and decoder")
 tf.app.flags.DEFINE_integer("document_length", 1000,"the max vocabulary of documents")
 tf.app.flags.DEFINE_integer("beam_width", 4,"the beam search max width")
 tf.app.flags.DEFINE_integer("attention_size", 150,"the attention size of the decoder")
-tf.app.flags.DEFINE_boolean("extract_sentence_flag", True,"using sentence extractor")
+tf.app.flags.DEFINE_boolean("extract_sentence_flag", False,"using sentence extractor")
 tf.app.flags.DEFINE_boolean("is_training", True,"is traning.true:tranining,false:testing/inference")
 tf.app.flags.DEFINE_integer("num_epochs",10,"number of epochs to run.")
 tf.app.flags.DEFINE_integer("validate_every", 1, "Validate every validate_every epochs.")
@@ -51,7 +52,7 @@ def main(_):
     with tf.Session(config=config) as sess:
         # instantiate model
         Model = Neuralmodel(FLAGS.extract_sentence_flag, FLAGS.vocab_size, FLAGS.batch_size, FLAGS.embed_size, FLAGS.learning_rate, FLAGS.decay_step, FLAGS.decay_rate, FLAGS.max_num_sequence, FLAGS.sequence_length,
-                            filter_sizes, feature_map, FLAGS.hidden_size, FLAGS.document_length, FLAGS.beam_width, FLAGS.attention_size, FLAGS.input_y2_max_length)
+                            filter_sizes, feature_map, FLAGS.hidden_size, FLAGS.document_length, FLAGS.max_num_abstract, FLAGS.beam_width, FLAGS.attention_size, FLAGS.input_y2_max_length)
         # initialize saver
         saver = tf.train.Saver()
         if os.path.exists(FLAGS.ckpt_dir+"checkpoint"):
