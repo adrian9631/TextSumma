@@ -84,6 +84,8 @@ def Example(article, abstracts, label, entity, vocab, hps):
     abstracts_words = abstract2ids(abstracts, vocab)
     # add tokens
     abstracts_inputs, abstracts_targets = token2add(abstracts_words, hps.input_y2_max_length, start_decoding, stop_decoding)
+    # search id in value position
+    abstract_targets = value2pos(abstracts_targets, article_words)
     # padding
     abstracts_inputs = pad_sequences(abstracts_inputs, maxlen=hps.input_y2_max_length, value=pad_id)
     abstracts_targets = pad_sequences(abstracts_targets, maxlen=hps.input_y2_max_length, value=pad_id)
@@ -157,6 +159,7 @@ def label2ids(labels, label_size):
 
 def value2ids(article, vocab, document_length):
     value = []
+    pad_id = vocab.word2id(PAD_TOKEN)
     unk_id = vocab.word2id(UNKNOWN_TOKEN)
     stop_id = vocab.word2id(STOP_DECODING)
     value.append(unk_id)
@@ -175,6 +178,19 @@ def value2ids(article, vocab, document_length):
             value.append(cnt)
         cnt += 1
     return value
+
+def value2pos(abstract, value):
+    poss = []
+    unk_id = vocab.word2id(UNKNOWN_TOKEN)
+    for sent in abstract:
+        pos=[]
+        for i in sent:
+            if i in value:
+                pos.append(value.index(i))
+            else:
+                pos.append(value.index(unk_id))
+        poss.append(pos)
+    return poss
 
 def article2ids(article, vocab):
     idss = []
@@ -229,7 +245,7 @@ def abstract2len(abstracts):
     length = []
     for sent in abstracts:
         abstract_words = sent.split()
-        length.append(len(abstract_words))
+        length.append(len(abstract_words)+1)
     return length
 
 def outputids2words(id_list, vocab):
