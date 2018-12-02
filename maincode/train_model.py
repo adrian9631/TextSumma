@@ -74,14 +74,23 @@ def main(_):
             for batch in tqdm(train_gen):
                 iteration=iteration+1
                 if epoch==0 and counter==0:
-                    print("train_batch", batch['article_words'])
+                    print("train_batch", batch['abstracts_len'])
                 feed_dict={}
-                feed_dict[Model.dropout_keep_prob] = 0.5
-                feed_dict[Model.input_x] = batch['article_words']
-                feed_dict[Model.input_y1] = batch['label_sentences']
-                feed_dict[Model.input_y1_length] = batch['article_len']
-                feed_dict[Model.tst] = FLAGS.is_training
-                feed_dict[Model.cur_learning] = True if FLAGS.cur_learning_step > iteration else False
+                if FLAGS.extract_sentence_flag:
+                    feed_dict[Model.dropout_keep_prob] = 0.5
+                    feed_dict[Model.input_x] = batch['article_words']
+                    feed_dict[Model.input_y1] = batch['label_sentences']
+                    feed_dict[Model.input_y1_length] = batch['article_len']
+                    feed_dict[Model.tst] = FLAGS.is_training
+                    feed_dict[Model.cur_learning] = True if FLAGS.cur_learning_step > iteration else False
+                else:
+                    feed_dict[Model.dropout_keep_prob] = 0.5
+                    feed_dict[Model.input_x] = batch['article_words']
+                    feed_dict[Model.input_y2_length] = batch['abstracts_len']
+                    feed_dict[Model.input_y2] = batch['abstracts_inputs']
+                    feed_dict[Model.input_decoder_x] = batch['abstracts_targets']
+                    feed_dict[Model.value_decoder_x] = batch['article_value']
+                    feed_dict[Model.tst] = FLAGS.is_training
                 curr_loss,lr,_,_,summary=sess.run([Model.loss_val,Model.learning_rate,Model.train_op,Model.global_increment,Model.merge],feed_dict)
                 summary_writer.add_summary(summary, global_step=iteration)
                 loss,counter=loss+curr_loss,counter+1
@@ -117,12 +126,21 @@ def do_eval(sess, Model):
     valid_gen = Batch(FLAGS.tst_data_path,FLAGS.vocab_path,FLAGS.entity_path,batch_size,FLAGS)
     for batch in valid_gen:
         feed_dict={}
-        feed_dict[Model.dropout_keep_prob] = 1.0
-        feed_dict[Model.input_x] = batch['article_words']
-        feed_dict[Model.input_y1] = batch['label_sentences']
-        feed_dict[Model.input_y1_length] = batch['article_len']
-        feed_dict[Model.tst] = not FLAGS.is_training
-        feed_dict[Model.cur_learning] = False
+        if FLAGS.extract_sentence_flag:
+            feed_dict[Model.dropout_keep_prob] = 1.0
+            feed_dict[Model.input_x] = batch['article_words']
+            feed_dict[Model.input_y1] = batch['label_sentences']
+            feed_dict[Model.input_y1_length] = batch['article_len']
+            feed_dict[Model.tst] = not FLAGS.is_training
+            feed_dict[Model.cur_learning] = False
+        else:
+            feed_dict[Model.dropout_keep_prob] = 0.5
+            feed_dict[Model.input_x] = batch['article_words']
+            feed_dict[Model.input_y2] = batch['abstracts_inputs']
+            feed_dict[Model.input_y2_length] = batch['abstracts_len']
+            feed_dict[Model.input_decoder_x] = batch['abstracts_targets']
+            feed_dict[Model.value_decoder_x] = batch['article_value']
+            feed_dict[Model.tst] = not FLAGS.is_training
         curr_eval_loss,logits=sess.run([Model.loss_val,Model.logits],feed_dict)
         curr_acc_score = compute_rouge(logits, batch)
         acc_score += curr_acc_score

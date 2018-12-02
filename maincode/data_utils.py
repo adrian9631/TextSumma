@@ -84,11 +84,11 @@ def Example(article, abstracts, label, entity, vocab, hps):
     abstracts_words = abstract2ids(abstracts, vocab)
     # add tokens
     abstracts_inputs, abstracts_targets = token2add(abstracts_words, hps.input_y2_max_length, start_decoding, stop_decoding)
-    # search id in value position
-    abstract_targets = value2pos(abstracts_targets, article_words)
     # padding
     abstracts_inputs = pad_sequences(abstracts_inputs, maxlen=hps.input_y2_max_length, value=pad_id)
     abstracts_targets = pad_sequences(abstracts_targets, maxlen=hps.input_y2_max_length, value=pad_id)
+    # search id in value position
+    abstract_targets = value2pos(abstracts_targets, article_value, vocab)
     # sentence level padding
     pad_abstracts = np.expand_dims(np.zeros(hps.input_y2_max_length, dtype=np.int32), axis = 0)
     if abstracts_inputs.shape[0] > hps.max_num_abstract:
@@ -97,11 +97,14 @@ def Example(article, abstracts, label, entity, vocab, hps):
         abstracts_inputs = np.concatenate((abstracts_inputs, pad_abstracts))
     if abstracts_targets.shape[0] > hps.max_num_abstract:
         abstracts_targets = abstracts_targets[:hps.max_num_abstract]
-    while abstracts_inputs.shape[0] < hps.max_num_abstract:
+    while abstracts_targets.shape[0] < hps.max_num_abstract:
         abstracts_targets = np.concatenate((abstracts_targets, pad_abstracts))
     # mask
     abstracts_len = abstract2len(abstracts)
-
+    if abstracts_len.shape[0] > hps.max_num_abstract:
+        abstracts_len = abstracts_len[:hps.max_num_abstract]
+    while abstracts_len.shape[0] < hps.max_num_abstract:
+        abstracts_len = np.concatenate((abstracts_len, [1]))
     return label_sentences, article_value, article_words, article_len, abstracts_targets, abstracts_inputs, abstracts_len
 
 class Vocab(object):
@@ -177,20 +180,20 @@ def value2ids(article, vocab, document_length):
         if cnt not in value:
             value.append(cnt)
         cnt += 1
-    return value
+    return np.array(value)
 
-def value2pos(abstract, value):
+def value2pos(abstract, value, vocab):
     poss = []
     unk_id = vocab.word2id(UNKNOWN_TOKEN)
     for sent in abstract:
         pos=[]
         for i in sent:
             if i in value:
-                pos.append(value.index(i))
+                pos.append(np.argwhere(value==i)[0])
             else:
-                pos.append(value.index(unk_id))
-        poss.append(pos)
-    return poss
+                pos.append(np.argwhere(value==unk_id)[0])
+        poss.append(np.array(pos))
+    return np.array(poss)
 
 def article2ids(article, vocab):
     idss = []
@@ -246,7 +249,7 @@ def abstract2len(abstracts):
     for sent in abstracts:
         abstract_words = sent.split()
         length.append(len(abstract_words)+1)
-    return length
+    return np.array(length)
 
 def outputids2words(id_list, vocab):
     words = []

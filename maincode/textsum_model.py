@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import tensorflow as tf
 from tensorflow.contrib.seq2seq.python.ops import *
-from beam_search_decoder import BeamSearchDecoder
 from helper import TrainingHelper
 import numpy as py
 
@@ -59,7 +58,7 @@ class Neuralmodel:
         else:
             self.input_y2_length = tf.placeholder(tf.int32, [None, self.max_num_abstract], name="input_y_word_length")
             self.input_y2 = tf.placeholder(tf.int32, [None, self.max_num_abstract, self.input_y2_max_length], name="input_y_word")
-            self.input_decoder_x = tf.placeholder(tf.int32, [None, self.input_y2_max_length], name="input_decoder_x")
+            self.input_decoder_x = tf.placeholder(tf.int32, [None, self.max_num_abstract, self.input_y2_max_length], name="input_decoder_x")
             self.value_decoder_x = tf.placeholder(tf.int32, [None, self.document_length], name="value_decoder_x")
             #self.mask = tf.sequence_mask(self.input_y2_length, self.input_y2_max_length, dtype=tf.float32, name='input_y2_mask')
             self.mask_list = [tf.sequence_mask(tf.squeeze(self.input_y2_length[idx:idx+1], axis=0), self.input_y2_max_length, dtype=tf.float32) for idx in range(self.batch_size)]
@@ -238,6 +237,7 @@ class Neuralmodel:
         values_decoder_embedded = []
         inputs_decoder_embedded = []
         initial_state_embedded =[]
+        encoder_inputs_lengths = []
         embedded_values = tf.nn.embedding_lookup(self.Embedding, self.value_decoder_x)
         for idx in range(self.batch_size):
             c = tf.concat([self.initial_state[0][idx:idx+1] for _ in range(self.max_num_abstract)], axis=0)
@@ -247,26 +247,31 @@ class Neuralmodel:
             embedded_attent_expand = tf.concat([self.attention_state[idx:idx+1] for _ in range(self.max_num_abstract)], axis=0)
             attent_decoder_embedded.append(embedded_attent_expand)
             embedded_abstracts = tf.nn.embedding_lookup(self.Embedding, self.input_decoder_x[idx:idx+1])
-            inputs_decoder_embedded.append(embedded_abstracts)
-
+            embedded_abstracts_squeezed = tf.squeeze(embedded_abstracts, axis=0)
+            inputs_decoder_embedded.append(embedded_abstracts_squeezed)
             embedded_values_squeezed = embedded_values[idx:idx+1]
             #embedded_values_squeezed = tf.squeeze(embedded_values[idx:idx+1], axis=0)
             values_decoder_embedded.append(embedded_values_squeezed)
+            encoder_inputs_length = tf.squeeze(self.input_y2_length[idx:idx+1], axis=0)
+            encoder_inputs_lengths.append(encoder_inputs_length)
 
-        for attent_embedded, inputs_embedded, values_embedded, initial_state in zip(attent_decoder_embedded, inputs_decoder_embedded, values_decoder_embedded, initial_state_embedded):
+        for attent_embedded, inputs_embedded, values_embedded, initial_state, encoder_inputs_length in zip(attent_decoder_embedded, inputs_decoder_embedded, values_decoder_embedded, initial_state_embedded, encoder_inputs_lengths):
 
-            with tf.name_scope("attention-word-decoder"):
+            with tf.variable_scope("attention-word-decoder", reuse=tf.AUTO_REUSE ):
                 if self.is_training:
                     attention_state = attent_embedded
+                    #document_state = tf.concat([values_embedded for _ in range(self.max_num_abstract)], axis=0)
                     document_state = values_embedded
-                    encoder_inputs_length = self.max_num_sequence * tf.ones([self.max_num_abstract], dtype=tf.int32)
-                    document_length = self.document_length * tf.ones([self.max_num_abstract], dtype=tf.int32)
+                    #encoder_inputs_length = self.max_num_sequence * tf.ones([self.max_num_abstract], dtype=tf.int32)
+                    #document_length = self.document_length * tf.ones([self.max_num_abstract], dtype=tf.int32)
+                    document_length = self.document_length * tf.ones([1,], dtype=tf.int32)
                     encoder_final_state = initial_state
                 else:
                     """4.2 beam search preparation"""
                     attention_state = tf.contrib.seq2seq.tile_batch(attent_embedded, multiplier=self.beam_width)
-                    document_state = tf.contrib.seq2seq.tile_batch(values_embedded, multiplier=self.beam_width)
-                    encoder_inputs_length = tf.contrib.seq2seq.tile_batch(self.max_num_sequence * tf.ones([self.max_num_abstract], dtype=tf.int32), multiplier=self.beam_width)
+                    document_state = tf.contrib.seq2seq.tile_batch(tf.concat([values_embedded for _ in range(self.max_num_abstract)], axis=0), multiplier=self.beam_width)
+                    #encoder_inputs_length = tf.contrib.seq2seq.tile_batch(self.max_num_sequence * tf.ones([self.max_num_abstract], dtype=tf.int32), multiplier=self.beam_width)
+                    encoder_inputs_length = tf.contrib.seq2seq.tile_batch(encoder_inputs_length, multiplier=self.beam_width)
                     document_length = tf.contrib.seq2seq.tile_batch(self.document_length * tf.ones([self.max_num_abstract], dtype=tf.int32), multiplier=self.beam_width)
                     encoder_final_state = tf.contrib.framework.nest.map_structure(lambda s: tf.contrib.seq2seq.tile_batch(s, self.beam_width), initial_state)
                 """4.2 Attention(Bahdanau)"""
@@ -279,40 +284,54 @@ class Neuralmodel:
                 attention_cell = attention_wrapper.AttentionWrapper(
                 cell=lstm_cell, attention_mechanism=attention_mechanism1, attention_layer_size=self.attention_size,                             \
                 # cell_input_fn=(lambda inputs, attention: tf.layers.Dense(self.hidden_size, dtype=tf.float32, name="attention_inputs")(array.ops.concat([inputs, attention],-1))) TODO \
-                #cell_input_fn=(lambda inputs, attention: tf.layers.Dense(self.hidden_size, dtype=tf.float32, name="attention_inputs")(inputs)), \
+                #cell_input_fn=(lambda inputs, attention: tf.squeeze(tf.layers.Dense(self.hidden_size, dtype=tf.float32, name="attention_inputs")(inputs), axis=0)), \
+                cell_input_fn=(lambda inputs, attention: tf.layers.Dense(self.hidden_size, dtype=tf.float32, name="attention_inputs")(inputs)), \
                 alignment_history=False, name='Attention_Wrapper'                                                                               \
                 )
 
                 batch_size = self.max_num_abstract if self.is_training else self.max_num_abstract * self.beam_width
                 decoder_initial_state = attention_cell.zero_state(batch_size=(batch_size), dtype=tf.float32).clone(cell_state=encoder_final_state)
-
+                #tf.scalar_mul(inputs_embedded, inputs_embedded)
                 if self.is_training:
                     helper = tf.contrib.seq2seq.TrainingHelper(inputs=inputs_embedded, sequence_length=encoder_inputs_length, time_major=False, name="training_helper")
                     training_decoder = tf.contrib.seq2seq.BasicDecoder(cell=attention_cell,helper=helper,initial_state=decoder_initial_state, output_layer=None)
-                    decoder_outputs, _, _ = tf.contrib.seq2seq.dynamic_decode(decoder=training_decoder,output_time_major=False,impute_finished=True,maximum_iterations=self.input_y2_max_length)
+                    decoder_outputs, _, final_sequence_lengths = tf.contrib.seq2seq.dynamic_decode(decoder=training_decoder,output_time_major=False,impute_finished=True,maximum_iterations=self.input_y2_max_length)
                 else:
                     start_tokens=tf.ones([self.max_num_abstract,], tf.int32) * 2
                     end_token= 3
-                    inference_decoder = BeamSearchDecoder(cell=attention_cell,embedding=document_state,start_tokens=start_tokens,end_token=end_token,initial_state=decoder_initial_state,beam_width=self.beam_width,output_layer=None)
+                    inference_decoder = tf.contrib.seq2seq.BeamSearchDecoder(cell=attention_cell,embedding=document_state,start_tokens=start_tokens,end_token=end_token,initial_state=decoder_initial_state,beam_width=self.beam_width,output_layer=None)
                     decoder_outputs, _, final_sequence_lengths = tf.contrib.seq2seq.dynamic_decode(decoder=inference_decoder,output_time_major=False,impute_finished=True,maximum_iterations=self.input_y2_max_length)
+                    length_list.append(final_sequence_lengths)
 
             """4.2 attention * document mat"""
             # decoder_outputs: [batch_size, input_y2_max_length, attention_size]
             # final_sequence_lengths: [batch_size]
             # logits: [batch_size, input_y2_max_length, document_length]
-            with tf.name_scope("attention-vocab"):
-                tf.scalar_mul(decoder_outputs[1],document_length)
+            with tf.variable_scope("attention-vocab", reuse=tf.AUTO_REUSE):
                 attention_mechanism2 =attention_wrapper.BahdanauAttention(
                     num_units=self.attention_size, memory=document_state, memory_sequence_length=document_length
                 )
-                for idx in range():
-                    query = tf.squeeze(decoder_outputs[0][:,idx:idx+1,:], axis=1)
-                    logits = attention_mechanism2(query=query, state=document_state)
+                state = tf.constant(True, dtype = tf.bool) # TODO trolling me ...
+                decoder_outputs = decoder_outputs[0]
+                list2 = []
+                for idx in range(self.max_num_abstract):
+                    list1=[]
+                    for step in range(self.input_y2_max_length):
+                        try:
+                            query = tf.squeeze(decoder_outputs[idx:idx+1,step:step+1,:], axis=1)
+                            logits, state = attention_mechanism2(query=query, state=state)
+                            list1.append(logits)
+                        except:
+                            break
+                    logits = tf.stack(list1, axis=1)
+                    list2.append(logits)
+                logits = tf.concat(list2, axis=0)
+            logits_list.append(logits)
 
-            logits_list.append(logits),
-            length_list.append(final_sequence_lengths)
-
-        return logits_list, length_list
+        if self.is_training:
+            return logits_list, []
+        else:
+            return logits_list, length_list
 
     def inference(self):
         """
@@ -387,8 +406,10 @@ class Neuralmodel:
             loss = tf.Variable(0.0, trainable=False, dtype= tf.float32)
             for logits, targets, mask in zip(self.logits, self.targets, self.mask_list):
                 loss += tf.contrib.seq2seq.sequence_loss(logits=logits,targets=targets,weights=mask,average_across_timesteps=True,average_across_batch=True)
-            l2_losses = tf.add_n([tf.nn.l2_loss(v) for v in tf.trainable_variables() if 'bias' not in v.name]) * l2_lambda
-            loss = loss + l2_losses
+            #l2_losses = tf.add_n([tf.nn.l2_loss(v) for v in tf.trainable_variables() if 'bias' not in v.name]) * l2_lambda
+            #loss = loss + l2_losses
+
+            tf.summary.scalar("loss", loss)
         return loss
 
     def train(self):
