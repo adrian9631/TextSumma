@@ -7,7 +7,7 @@ import numpy as py
 class Neuralmodel:
     def __init__(self,extract_sentence_flag, is_training, vocab_size, batch_size, embed_size,learning_rate,decay_step,decay_rate,
                  max_num_sequence,sequence_length,filter_sizes,feature_map,hidden_size,document_length,max_num_abstract,beam_width,
-                 attention_size,input_y2_max_length,clip_gradients=5.0,initializer=tf.random_normal_initializer(stddev=0.1)):
+                 attention_size,input_y2_max_length,clip_gradients=7.5,initializer=tf.random_normal_initializer(stddev=0.1)):
         """init all hyperparameter:"""
         self.initializer = tf.contrib.layers.xavier_initializer()
         self.initializer_uniform = tf.random_uniform_initializer(minval=-0.05,maxval=0.05)
@@ -157,6 +157,14 @@ class Neuralmodel:
             lstm_outputs, cell_state = tf.nn.dynamic_rnn(lstm_cell, cnn_outputs, dtype = tf.float32)
         return cnn_outputs, lstm_outputs, cell_state
 
+    def sigmoid_norm(self, score):
+        with tf.name_scope("sigmoid_norm"):
+            Min = tf.sigmoid(tf.constant(-1, dtype=tf.float32))
+            Max = tf.sigmoid(tf.constant(1, dtype=tf.float32))
+            prob = tf.sigmoid(score)
+            prob_norm = (prob - Min) / (Max - Min)
+        return prob_norm
+
     def lstm_single_step(self, St, At, h_t_minus_1, c_t_minus_1, p_t_minus_1):
 
         p_t_minus_1 = tf.reshape(p_t_minus_1, [-1, 1])
@@ -171,17 +179,16 @@ class Neuralmodel:
         c_t = f_t * c_t_minus_1 + i_t * c_t_candidate
         o_t = tf.nn.sigmoid(tf.matmul(Xt, self.W_o) + tf.matmul(h_t_minus_1, self.U_o) + self.b_o)
         h_t = o_t * tf.nn.tanh(c_t)
-        tf.summary.histogram("cell", c_t)
-        tf.summary.histogram("ouput", o_t)
-        tf.summary.histogram("Input", Xt)
-        tf.summary.histogram("attenton_z", At)
-        tf.summary.histogram("hidden_z", h_t)
+        tf.summary.histogram("input:pt*st", Xt)
+        tf.summary.histogram("attenton_z_value", At)
+        tf.summary.histogram("hidden_z_value", h_t)
         # prob compute
         with tf.name_scope("Score_Layer"):
             concat_h = tf.concat([At, h_t], axis=1)
             tf.summary.histogram("concat", concat_h)
             concat_h_dropout = tf.nn.dropout(concat_h, keep_prob=self.dropout_keep_prob)
-            p_t = tf.layers.dense(concat_h_dropout, 1, activation=tf.sigmoid, name="score", reuse=tf.AUTO_REUSE)
+            score = tf.layers.dense(concat_h_dropout, 1, activation=tf.nn.tanh, name="score", reuse=tf.AUTO_REUSE)
+        p_t = self.sigmoid_norm(score)
 
         return h_t, c_t, p_t
 
@@ -209,18 +216,17 @@ class Neuralmodel:
             St_0 = tf.nn.embedding_lookup(self.Embedding_, start_tokens)
             At_0 = attention_state[0]
             h_t, c_t, p_t = self.lstm_single_step(St_0, At_0, h_t_0, c_t_0, p_t_0)
-            tf.summary.histogram("prob_t", p_t)
             p_t_lstm_list.append(p_t)
+            tf.summary.histogram("prob_t", p_t)
             # next steps
             for time_step, merge in enumerate(zip(cnn_outputs[:-1], attention_state[1:])):
                 St, At = merge[0], merge[1]
-                tf.summary.histogram("sen_t", St)
                 p_t = tf.cond(self.cur_learning, lambda: tf.cast(self.input_y1[:,time_step:time_step+1], dtype=tf.float32), lambda: p_t)
-                p_t = tf.cond(self.cur_learning, lambda: p_t*(1-label_smoothing)+0.5*label_smoothing , lambda: p_t)
-                tf.summary.histogram("prob_t_feed", p_t)
+                #p_t = tf.cond(self.cur_learning, lambda: p_t*(1-label_smoothing)+0.5*label_smoothing , lambda: p_t)
                 h_t, c_t, p_t = self.lstm_single_step(St, At, h_t, c_t, p_t)
-                tf.summary.histogram("prob_t", p_t)
                 p_t_lstm_list.append(p_t)
+                tf.summary.histogram("sen_t", St)
+                tf.summary.histogram("prob_t", p_t)
             # results
             logits = tf.concat(p_t_lstm_list, axis=1)
 
@@ -260,19 +266,15 @@ class Neuralmodel:
             with tf.variable_scope("attention-word-decoder", reuse=tf.AUTO_REUSE ):
                 if self.is_training:
                     attention_state = attent_embedded
-                    #document_state = tf.concat([values_embedded for _ in range(self.max_num_abstract)], axis=0)
                     document_state = values_embedded
-                    #encoder_inputs_length = self.max_num_sequence * tf.ones([self.max_num_abstract], dtype=tf.int32)
-                    #document_length = self.document_length * tf.ones([self.max_num_abstract], dtype=tf.int32)
                     document_length = self.document_length * tf.ones([1,], dtype=tf.int32)
                     encoder_final_state = initial_state
                 else:
                     """4.2 beam search preparation"""
                     attention_state = tf.contrib.seq2seq.tile_batch(attent_embedded, multiplier=self.beam_width)
-                    document_state = tf.contrib.seq2seq.tile_batch(tf.concat([values_embedded for _ in range(self.max_num_abstract)], axis=0), multiplier=self.beam_width)
-                    #encoder_inputs_length = tf.contrib.seq2seq.tile_batch(self.max_num_sequence * tf.ones([self.max_num_abstract], dtype=tf.int32), multiplier=self.beam_width)
+                    document_state = tf.contrib.seq2seq.tile_batch(values_embedded, multiplier=self.beam_width)
                     encoder_inputs_length = tf.contrib.seq2seq.tile_batch(encoder_inputs_length, multiplier=self.beam_width)
-                    document_length = tf.contrib.seq2seq.tile_batch(self.document_length * tf.ones([self.max_num_abstract], dtype=tf.int32), multiplier=self.beam_width)
+                    document_length = tf.contrib.seq2seq.tile_batch(self.document_length * tf.ones([1,], dtype=tf.int32), multiplier=self.beam_width)
                     encoder_final_state = tf.contrib.framework.nest.map_structure(lambda s: tf.contrib.seq2seq.tile_batch(s, self.beam_width), initial_state)
                 """4.2 Attention(Bahdanau)"""
                 # building attention cell
@@ -317,12 +319,13 @@ class Neuralmodel:
                 for idx in range(self.max_num_abstract):
                     list1=[]
                     for step in range(self.input_y2_max_length):
-                        try:
-                            query = tf.squeeze(decoder_outputs[idx:idx+1,step:step+1,:], axis=1)
-                            logits, state = attention_mechanism2(query=query, state=state)
-                            list1.append(logits)
-                        except:
-                            break
+                        src = decoder_outputs[idx:idx+1,step:step+1,:]
+                        print (src.get_shape)
+                        #print (src.get_shape == (1,1,self.attention_size))
+                        cond = tf.constant((src.get_shape == (1,1,self.attention_size)), tf.bool)
+                        query = tf.cond(cond, lambda:tf.squeeze(src, axis=1), lambda:tf.zeros([1,self.attention_size],tf.float32))
+                        logits, state = attention_mechanism2(query=query, state=state)
+                        list1.append(logits)
                     logits = tf.stack(list1, axis=1)
                     list2.append(logits)
                 logits = tf.concat(list2, axis=0)
@@ -348,27 +351,7 @@ class Neuralmodel:
             logits, final_sequence_lengths = self.word_extractor()
             return logits, final_sequence_lengths
 
-    def loss_sentence1(self, label_smoothing=0,l2_lambda=0.001):
-        # multi_class_labels: [batch_size, max_num_sequence]
-        # logits: [batch_size, max_num_sequence]
-        # losses: [batch_size, max_num_sequence]
-        # sigmoid log: max(x, 0) + x * z + log(1 + exp(-x))
-        with tf.name_scope("loss_sentence"):
-            logits = tf.convert_to_tensor(self.logits)
-            labels = tf.cast(self.input_y1, logits.dtype)
-            if label_smoothing > 0:labels = (labels * (1 - label_smoothing) + 0.5 * label_smoothing)
-            losses = tf.nn.sigmoid_cross_entropy_with_logits(labels=labels, logits=self.logits)
-            mask = self.mask
-            losses *= mask
-            losses = tf.reduce_sum(losses, axis = 1)
-            total_size = tf.reduce_sum(mask, axis = 1)
-            losses = tf.divide(losses, total_size)
-            loss = tf.reduce_mean(losses)
-            l2_losses = tf.add_n([tf.nn.l2_loss(v) for v in tf.trainable_variables() if 'bias' not in v.name]) * l2_lambda
-            loss = loss + l2_losses
-        return loss
-
-    def loss_sentence(self, l2_lambda=0.001):
+    def loss_sentence(self):
         # multi_class_labels: [batch_size, max_num_sequence]
         # logits: [batch_size, max_num_sequence]
         # losses: [batch_size, max_num_sequence]
@@ -383,18 +366,25 @@ class Neuralmodel:
             ones = tf.ones_like(logits, dtype=logits.dtype)
             cond  = ( labels > zeros )
             logits_ = tf.where(cond, logits, ones-logits)
-            logits_log = tf.log(logits)
+            self.logits = logits_
+            logits_log = tf.log(logits_)
             losses = -logits_log
-            #mask = self.mask
-            #losses *= mask
-            losses = tf.reduce_sum(losses, axis = 1)
-            #total_size = tf.reduce_sum(mask, axis = 1)
-            #losses = tf.divide(losses, total_size)
             loss = tf.reduce_sum(losses)
             tf.summary.scalar("loss", loss)
-            #l2_losses = tf.add_n([tf.nn.l2_loss(v) for v in tf.trainable_variables() if 'bias' not in v.name]) * l2_lambda
-            #tf.summary.scalar("l2_loss", l2_losses)
-            #loss = loss + l2_losses
+        return loss
+
+    def loss_sentence3(self):
+        with tf.name_scope("loss_sentence"):
+            logits = tf.convert_to_tensor(self.logits)
+            labels = tf.cast(self.input_y1, logits.dtype)
+            Min = tf.sigmoid(tf.constant(-1, dtype=tf.float32))
+            Max = tf.sigmoid(tf.constant(1, dtype=tf.float32))
+            ones = tf.ones_like(labels, dtype=labels.dtype)
+            cond = ( labels < ones )
+            labels = tf.where(cond, Min*ones, Max*ones)
+            losses= tf.nn.sigmoid_cross_entropy_with_logits(labels=labels, logits=logits)
+            loss = tf.reduce_sum(losses)
+            tf.summary.scalar("loss", loss)
         return loss
 
     def loss_word(self, l2_lambda=0.001):

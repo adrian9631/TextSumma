@@ -37,7 +37,7 @@ tf.app.flags.DEFINE_integer("hidden_size", 300,"the hidden size of the encoder a
 tf.app.flags.DEFINE_integer("document_length", 1000,"the max vocabulary of documents")
 tf.app.flags.DEFINE_integer("beam_width", 4,"the beam search max width")
 tf.app.flags.DEFINE_integer("attention_size", 150,"the attention size of the decoder")
-tf.app.flags.DEFINE_boolean("extract_sentence_flag", False,"using sentence extractor")
+tf.app.flags.DEFINE_boolean("extract_sentence_flag", True,"using sentence extractor")
 tf.app.flags.DEFINE_boolean("is_training", True,"is traning.true:tranining,false:testing/inference")
 tf.app.flags.DEFINE_integer("num_epochs",10,"number of epochs to run.")
 tf.app.flags.DEFINE_integer("validate_every", 1, "Validate every validate_every epochs.")
@@ -58,6 +58,7 @@ def main(_):
         if os.path.exists(FLAGS.ckpt_dir+"checkpoint"):
             print("Restoring Variables from Checkpoint.")
             saver.restore(sess,tf.train.latest_checkpoint(FLAGS.ckpt_dir))
+            summary_writer = tf.summary.FileWriter(logdir=FLAGS.log_path, graph=sess.graph)
         else:
             print('Initializing Variables')
             sess.run(tf.global_variables_initializer())
@@ -91,7 +92,7 @@ def main(_):
                     feed_dict[Model.input_decoder_x] = batch['abstracts_targets']
                     feed_dict[Model.value_decoder_x] = batch['article_value']
                     feed_dict[Model.tst] = FLAGS.is_training
-                curr_loss,lr,_,_,summary=sess.run([Model.loss_val,Model.learning_rate,Model.train_op,Model.global_increment,Model.merge],feed_dict)
+                curr_loss,lr,_,_,summary,logits=sess.run([Model.loss_val,Model.learning_rate,Model.train_op,Model.global_increment,Model.merge,Model.logits],feed_dict)
                 summary_writer.add_summary(summary, global_step=iteration)
                 loss,counter=loss+curr_loss,counter+1
                 if counter %50==0:

@@ -100,7 +100,7 @@ def Example(article, abstracts, label, entity, vocab, hps):
     while abstracts_targets.shape[0] < hps.max_num_abstract:
         abstracts_targets = np.concatenate((abstracts_targets, pad_abstracts))
     # mask
-    abstracts_len = abstract2len(abstracts)
+    abstracts_len = abstract2len(abstracts, hps.input_y2_max_length)
     if abstracts_len.shape[0] > hps.max_num_abstract:
         abstracts_len = abstracts_len[:hps.max_num_abstract]
     while abstracts_len.shape[0] < hps.max_num_abstract:
@@ -244,11 +244,14 @@ def token2add(abstracts, max_len, start_id, stop_id):
         targets.append(target)
     return inps, targets
 
-def abstract2len(abstracts):
+def abstract2len(abstracts, max_len):
     length = []
     for sent in abstracts:
         abstract_words = sent.split()
-        length.append(len(abstract_words)+1)
+        if len(abstract_words) + 1 > max_len:
+            length.append(max_len)
+        else:
+            length.append(len(abstract_words)+1)
     return np.array(length)
 
 def outputids2words(id_list, vocab):
