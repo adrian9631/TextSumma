@@ -373,20 +373,6 @@ class Neuralmodel:
             tf.summary.scalar("loss", loss)
         return loss
 
-    def loss_sentence3(self):
-        with tf.name_scope("loss_sentence"):
-            logits = tf.convert_to_tensor(self.logits)
-            labels = tf.cast(self.input_y1, logits.dtype)
-            Min = tf.sigmoid(tf.constant(-1, dtype=tf.float32))
-            Max = tf.sigmoid(tf.constant(1, dtype=tf.float32))
-            ones = tf.ones_like(labels, dtype=labels.dtype)
-            cond = ( labels < ones )
-            labels = tf.where(cond, Min*ones, Max*ones)
-            losses= tf.nn.sigmoid_cross_entropy_with_logits(labels=labels, logits=logits)
-            loss = tf.reduce_sum(losses)
-            tf.summary.scalar("loss", loss)
-        return loss
-
     def loss_word(self, l2_lambda=0.001):
         # logits:  [batch_size, sequence_length, document_length]
         # targets: [batch_size, sequence_length]
