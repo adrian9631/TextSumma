@@ -4,8 +4,8 @@ from tensorflow.contrib.seq2seq.python.ops import *
 import numpy as py
 
 class Neuralmodel:
-    def __init__(self,extract_sentence_flag, is_training, vocab_size, batch_size, embed_size,learning_rate,cur_step,decay_step,decay_rate,
-                 max_num_sequence,sequence_length,filter_sizes,feature_map,hidden_size,document_length,max_num_abstract,beam_width,
+    def __init__(self,extract_sentence_flag,is_training,vocab_size,batch_size,embed_size,learning_rate,cur_step,decay_step,decay_rate,max_num_sequence,
+                 sequence_length,filter_sizes,feature_map,use_highway_flag,highway_layers,hidden_size,document_length,max_num_abstract,beam_width,
                  attention_size,input_y2_max_length,clip_gradients=5.0,initializer=tf.random_normal_initializer(stddev=0.1)):
         """init all hyperparameter:"""
         self.initializer = tf.contrib.layers.xavier_initializer()
@@ -34,6 +34,10 @@ class Neuralmodel:
         self.sequence_length = sequence_length
         self.filter_sizes = filter_sizes
         self.feature_map = feature_map
+
+        """Highway Network"""
+        self.use_highway_flag = use_highway_flag
+        self.highway_layers = highway_layers
 
         """LSTM (sentence)"""
         self.hidden_size = hidden_size
@@ -129,7 +133,7 @@ class Neuralmodel:
         # cnn_outputs: [batch_size, max_num_sequence, num_filters * class_filters]
         with tf.name_scope("CNN-Layer-Encoder"):
             pooled_outputs = []
-            for conv_s in embedded_words:
+            for m, conv_s in enumerate(embedded_words):
                 pooled_temp = []
                 for i, filter_size in enumerate(self.filter_sizes):
                     with tf.variable_scope("convolution-pooling-%s" % filter_size, reuse=tf.AUTO_REUSE):
@@ -142,11 +146,11 @@ class Neuralmodel:
                         pooled_temp.append(pooled)
                 pooled_temp = tf.concat(pooled_temp, axis=3)
                 pooled_temp = tf.reshape(pooled_temp, [-1, self.hidden_size])
+                """3.Highway Network"""
+                if self.use_highway_flag:
+                    pooled_temp = self.highway(pooled_temp, pooled_temp.get_shape()[1], m, self.highway_layers, 0)
                 pooled_outputs.append(pooled_temp)
             cnn_outputs = tf.stack(pooled_outputs, axis=0)
-
-        """3.Highway Network"""
-
 
         """4.LSTM(sentence)"""
         # lstm_outputs: [batch_size, max_time, hidden_size]
@@ -156,6 +160,31 @@ class Neuralmodel:
             lstm_cell = tf.nn.rnn_cell.DropoutWrapper(lstm_cell, output_keep_prob = self.dropout_keep_prob)
             lstm_outputs, cell_state = tf.nn.dynamic_rnn(lstm_cell, cnn_outputs, dtype = tf.float32)
         return cnn_outputs, lstm_outputs, cell_state
+
+    def highway(self, input_, size, mark, layer_size=1, bias=-2.0, f=tf.nn.relu):
+        # t = sigmoid( W * y + b)
+        # z = t * g(W * y + b) + (1 - t) * y
+        # where g is nonlinearity, t is transform gate, and (1 - t) is carry gate.
+
+        def linear(input_, output_size, mark, scope=None):
+            shape = input_.get_shape().as_list()
+            if len(shape) != 2:
+                raise ValueError("Linear is expecting 2D arguments: %s" % str(shape))
+            if not shape[1]:
+                raise ValueError("Linear expects shape[1] of arguments: %s" % str(shape))
+            input_size = shape[1]
+            with tf.variable_scope(scope or "simplelinear"):
+                W = tf.get_variable("W_%d" % mark, [output_size, input_size], dtype = input_.dtype)
+                b = tf.get_variable("b_%d" % mark, [output_size], dtype = input_.dtype)
+            return tf.matmul(input_, tf.transpose(W)) + b
+
+        with tf.variable_scope("highway"):
+            for idx in range(layer_size):
+                g = f(linear(input_, size, mark, scope="highway_lin_%d" % idx))
+                t = tf.sigmoid(linear(input_, size, mark, scope="highway_gate_%d" % idx ) + bias)
+                output = t * g + (1. - t) * input_
+                input_ = output
+        return output
 
     def sigmoid_norm(self, score):
         # sigmoid(tanh) --> sigmoid([-1,1]) --> [0.26,0.73] --> [0,1]

@@ -23,7 +23,7 @@ tf.app.flags.DEFINE_integer("vocab_size",200000,"maximum vocab size.")
 
 tf.app.flags.DEFINE_float("learning_rate",0.001,"learning rate")
 
-tf.app.flags.DEFINE_integer("is_frozen_step", 0, "how many steps before fine-tuning the embedding.")
+tf.app.flags.DEFINE_integer("is_frozen_step", 1000, "how many steps before fine-tuning the embedding.")
 tf.app.flags.DEFINE_integer("cur_learning_step", 1000000, "how many steps before using the predicted labels instead of true labels.")
 tf.app.flags.DEFINE_integer("decay_step", 5000, "how many steps before decay learning rate.")
 tf.app.flags.DEFINE_float("decay_rate", 0.1, "Rate of decay for learning rate.")
@@ -35,6 +35,8 @@ tf.app.flags.DEFINE_integer("max_num_sequence", 30,"the max number of sequence i
 tf.app.flags.DEFINE_integer("max_num_abstract", 4,"the max number of abstract in documents")
 tf.app.flags.DEFINE_integer("sequence_length", 100,"the max length of a sentence in documents")
 tf.app.flags.DEFINE_integer("hidden_size", 300,"the hidden size of the encoder and decoder")
+tf.app.flags.DEFINE_boolean("use_highway_flag", True,"using highway network or not.")
+tf.app.flags.DEFINE_integer("highway_layers", 2,"How many layers in highway network.")
 tf.app.flags.DEFINE_integer("document_length", 1000,"the max vocabulary of documents")
 tf.app.flags.DEFINE_integer("beam_width", 4,"the beam search max width")
 tf.app.flags.DEFINE_integer("attention_size", 150,"the attention size of the decoder")
@@ -53,7 +55,7 @@ def main(_):
     with tf.Session(config=config) as sess:
         # instantiate model
         Model = Neuralmodel(FLAGS.extract_sentence_flag, FLAGS.is_training, FLAGS.vocab_size, FLAGS.batch_size, FLAGS.embed_size, FLAGS.learning_rate, FLAGS.cur_learning_step, FLAGS.decay_step, FLAGS.decay_rate, FLAGS.max_num_sequence, FLAGS.sequence_length,
-                            filter_sizes, feature_map, FLAGS.hidden_size, FLAGS.document_length, FLAGS.max_num_abstract, FLAGS.beam_width, FLAGS.attention_size, FLAGS.input_y2_max_length)
+                            filter_sizes, feature_map, FLAGS.use_highway_flag, FLAGS.highway_layers, FLAGS.hidden_size, FLAGS.document_length, FLAGS.max_num_abstract, FLAGS.beam_width, FLAGS.attention_size, FLAGS.input_y2_max_length)
         # initialize saver
         saver = tf.train.Saver()
         if os.path.exists(FLAGS.ckpt_dir+"checkpoint"):
