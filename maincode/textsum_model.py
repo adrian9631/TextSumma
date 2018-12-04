@@ -1,13 +1,12 @@
 # -*- coding: utf-8 -*-
 import tensorflow as tf
 from tensorflow.contrib.seq2seq.python.ops import *
-from helper import TrainingHelper
 import numpy as py
 
 class Neuralmodel:
-    def __init__(self,extract_sentence_flag, is_training, vocab_size, batch_size, embed_size,learning_rate,decay_step,decay_rate,
+    def __init__(self,extract_sentence_flag, is_training, vocab_size, batch_size, embed_size,learning_rate,cur_step,decay_step,decay_rate,
                  max_num_sequence,sequence_length,filter_sizes,feature_map,hidden_size,document_length,max_num_abstract,beam_width,
-                 attention_size,input_y2_max_length,clip_gradients=7.5,initializer=tf.random_normal_initializer(stddev=0.1)):
+                 attention_size,input_y2_max_length,clip_gradients=5.0,initializer=tf.random_normal_initializer(stddev=0.1)):
         """init all hyperparameter:"""
         self.initializer = tf.contrib.layers.xavier_initializer()
         self.initializer_uniform = tf.random_uniform_initializer(minval=-0.05,maxval=0.05)
@@ -22,6 +21,7 @@ class Neuralmodel:
         self.is_training = is_training
         self.tst = tf.placeholder(tf.bool, name='is_training_flag')
         self.learning_rate = tf.Variable(learning_rate, trainable=False, name='learning_rate')
+        self.cur_step = tf.Variable(cur_step, trainable=False, name='total_step_for_cur_learning')
         self.decay_step = decay_step
         self.decay_rate = decay_rate
 
@@ -38,8 +38,6 @@ class Neuralmodel:
         """LSTM (sentence)"""
         self.hidden_size = hidden_size
         self.document_length = document_length
-
-        """LSTM + MLP (labeling)"""
 
         """LSTM + Attention (generating)"""
         self.max_num_abstract = max_num_abstract
@@ -60,7 +58,6 @@ class Neuralmodel:
             self.input_y2 = tf.placeholder(tf.int32, [None, self.max_num_abstract, self.input_y2_max_length], name="input_y_word")
             self.input_decoder_x = tf.placeholder(tf.int32, [None, self.max_num_abstract, self.input_y2_max_length], name="input_decoder_x")
             self.value_decoder_x = tf.placeholder(tf.int32, [None, self.document_length], name="value_decoder_x")
-            #self.mask = tf.sequence_mask(self.input_y2_length, self.input_y2_max_length, dtype=tf.float32, name='input_y2_mask')
             self.mask_list = [tf.sequence_mask(tf.squeeze(self.input_y2_length[idx:idx+1], axis=0), self.input_y2_max_length, dtype=tf.float32) for idx in range(self.batch_size)]
             self.targets = [tf.squeeze(self.input_y2[idx:idx+1], axis=0) for idx in range(self.batch_size)]
 
@@ -87,6 +84,7 @@ class Neuralmodel:
             self.loss_val = self.loss_word()
 
         self.train_op = self.train()
+        self.train_op_frozen = self.train_frozen()
         self.merge = tf.summary.merge_all()
 
     def instantiate_weights(self):
@@ -124,7 +122,6 @@ class Neuralmodel:
             self.embedded_words_expanded = tf.expand_dims(self.embedded_words_squeezed, axis=-1)
             embedded_words.append(self.embedded_words_expanded)
 
-        #tf.scalar_mul(self.embedded_words_expanded,self.embedded_words)
         """2.CNN(word)"""
         # conv: [max_num_sequence, sequence_length-filter_size+1, 1, num_filters]
         # pooled: [max_num_sequence, 1, 1, num_filters]
@@ -148,7 +145,10 @@ class Neuralmodel:
                 pooled_outputs.append(pooled_temp)
             cnn_outputs = tf.stack(pooled_outputs, axis=0)
 
-        """3.LSTM(sentence)"""
+        """3.Highway Network"""
+
+
+        """4.LSTM(sentence)"""
         # lstm_outputs: [batch_size, max_time, hidden_size]
         # cell_state: [batch_size, hidden_size]
         with tf.variable_scope("LSTM-Layer-Encoder", initializer=self.initializer_uniform):
@@ -158,6 +158,7 @@ class Neuralmodel:
         return cnn_outputs, lstm_outputs, cell_state
 
     def sigmoid_norm(self, score):
+        # sigmoid(tanh) --> sigmoid([-1,1]) --> [0.26,0.73] --> [0,1]
         with tf.name_scope("sigmoid_norm"):
             Min = tf.sigmoid(tf.constant(-1, dtype=tf.float32))
             Max = tf.sigmoid(tf.constant(1, dtype=tf.float32))
@@ -192,7 +193,17 @@ class Neuralmodel:
 
         return h_t, c_t, p_t
 
-    def sentence_extractor(self, label_smoothing = 0.1):
+    def weight_control(self, time_step, p_t):
+        # curriculum learning control the weight between true labels and those predicted
+        labels = tf.cast(self.input_y1[:,time_step:time_step+1], dtype=tf.float32)
+        total_step = tf.cast(self.cur_step, dtype=tf.float32)
+        global_step = tf.cast(self.global_step, dtype=tf.float32)
+        weight = tf.divide(global_step, total_step)
+        p_t_curr = (1 - weight) * labels + weight * p_t
+        #return p_t_curr
+        return labels
+
+    def sentence_extractor(self):
         """4.1.1 LSTM(decoder)"""
         # decoder input each time: activation (MLP(h_t:At)) * St
         # h_t: decoder LSTM output
@@ -221,8 +232,7 @@ class Neuralmodel:
             # next steps
             for time_step, merge in enumerate(zip(cnn_outputs[:-1], attention_state[1:])):
                 St, At = merge[0], merge[1]
-                p_t = tf.cond(self.cur_learning, lambda: tf.cast(self.input_y1[:,time_step:time_step+1], dtype=tf.float32), lambda: p_t)
-                #p_t = tf.cond(self.cur_learning, lambda: p_t*(1-label_smoothing)+0.5*label_smoothing , lambda: p_t)
+                p_t = tf.cond(self.cur_learning, lambda: self.weight_control(time_step, p_t), lambda: p_t)
                 h_t, c_t, p_t = self.lstm_single_step(St, At, h_t, c_t, p_t)
                 p_t_lstm_list.append(p_t)
                 tf.summary.histogram("sen_t", St)
@@ -369,7 +379,8 @@ class Neuralmodel:
             self.logits = logits_
             logits_log = tf.log(logits_)
             losses = -logits_log
-            loss = tf.reduce_sum(losses)
+            loss = tf.reduce_sum(losses, axis=1)
+            loss = tf.reduce_mean(loss)
             tf.summary.scalar("loss", loss)
         return loss
 
@@ -384,9 +395,21 @@ class Neuralmodel:
                 loss += tf.contrib.seq2seq.sequence_loss(logits=logits,targets=targets,weights=mask,average_across_timesteps=True,average_across_batch=True)
             #l2_losses = tf.add_n([tf.nn.l2_loss(v) for v in tf.trainable_variables() if 'bias' not in v.name]) * l2_lambda
             #loss = loss + l2_losses
-
             tf.summary.scalar("loss", loss)
         return loss
+
+    def train_frozen(self):
+        with tf.name_scope("train_op_frozen"):
+            learning_rate = tf.train.exponential_decay(self.learning_rate, self.global_step, self.decay_step, self.decay_rate, staircase=True)
+            self.learning_rate = learning_rate
+            optimizer = tf.train.AdamOptimizer(learning_rate)
+            tvars = [tvar for tvar in tf.trainable_variables() if 'embedding' not in tvar.name]
+            gradients, variables = zip(*optimizer.compute_gradients(self.loss_val, tvars))
+            gradients, _ = tf.clip_by_global_norm(gradients, self.clip_gradients)
+            update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+            with tf.control_dependencies(update_ops):
+                train_op = optimizer.apply_gradients(zip(gradients, variables))
+        return train_op
 
     def train(self):
         with tf.name_scope("train_op"):
@@ -399,3 +422,4 @@ class Neuralmodel:
             with tf.control_dependencies(update_ops):
                 train_op = optimizer.apply_gradients(zip(gradients, variables))
         return train_op
+

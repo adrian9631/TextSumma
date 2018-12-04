@@ -23,8 +23,9 @@ tf.app.flags.DEFINE_integer("vocab_size",200000,"maximum vocab size.")
 
 tf.app.flags.DEFINE_float("learning_rate",0.001,"learning rate")
 
-tf.app.flags.DEFINE_integer("cur_learning_step", 500, "how many steps before using the true sentence labels instead of the prediction.")
-tf.app.flags.DEFINE_integer("decay_step", 3000, "how many steps before decay learning rate.")
+tf.app.flags.DEFINE_integer("is_frozen_step", 0, "how many steps before fine-tuning the embedding.")
+tf.app.flags.DEFINE_integer("cur_learning_step", 1000000, "how many steps before using the predicted labels instead of true labels.")
+tf.app.flags.DEFINE_integer("decay_step", 5000, "how many steps before decay learning rate.")
 tf.app.flags.DEFINE_float("decay_rate", 0.1, "Rate of decay for learning rate.")
 tf.app.flags.DEFINE_string("ckpt_dir","../ckpt/","checkpoint location for the model")
 tf.app.flags.DEFINE_integer("batch_size", 20, "Batch size for training/evaluating.")
@@ -51,7 +52,7 @@ def main(_):
     config.gpu_options.allow_growth=True
     with tf.Session(config=config) as sess:
         # instantiate model
-        Model = Neuralmodel(FLAGS.extract_sentence_flag, FLAGS.is_training, FLAGS.vocab_size, FLAGS.batch_size, FLAGS.embed_size, FLAGS.learning_rate, FLAGS.decay_step, FLAGS.decay_rate, FLAGS.max_num_sequence, FLAGS.sequence_length,
+        Model = Neuralmodel(FLAGS.extract_sentence_flag, FLAGS.is_training, FLAGS.vocab_size, FLAGS.batch_size, FLAGS.embed_size, FLAGS.learning_rate, FLAGS.cur_learning_step, FLAGS.decay_step, FLAGS.decay_rate, FLAGS.max_num_sequence, FLAGS.sequence_length,
                             filter_sizes, feature_map, FLAGS.hidden_size, FLAGS.document_length, FLAGS.max_num_abstract, FLAGS.beam_width, FLAGS.attention_size, FLAGS.input_y2_max_length)
         # initialize saver
         saver = tf.train.Saver()
@@ -92,13 +93,14 @@ def main(_):
                     feed_dict[Model.input_decoder_x] = batch['abstracts_targets']
                     feed_dict[Model.value_decoder_x] = batch['article_value']
                     feed_dict[Model.tst] = FLAGS.is_training
-                curr_loss,lr,_,_,summary,logits=sess.run([Model.loss_val,Model.learning_rate,Model.train_op,Model.global_increment,Model.merge,Model.logits],feed_dict)
+                train_op = Model.train_op_frozen if FLAGS.is_frozen_step > iteration else Model.train_op
+                curr_loss,lr,_,_,summary,logits=sess.run([Model.loss_val,Model.learning_rate,train_op,Model.global_increment,Model.merge,Model.logits],feed_dict)
                 summary_writer.add_summary(summary, global_step=iteration)
                 loss,counter=loss+curr_loss,counter+1
                 if counter %50==0:
                     print("Epoch %d\tBatch %d\tTrain Loss:%.3f\tLearning rate:%.5f" %(epoch,counter,loss/float(counter),lr))
                 ########################################################################################################
-                if iteration % 500 == 0: # eval every 3000 steps.
+                if iteration % 1500 == 0: # eval every 3000 steps.
                     eval_loss, acc_score = do_eval(sess, Model)
                     print("Epoch %d Validation Loss:%.3f\t Acc:%.3f" % (epoch, eval_loss, acc_score))
                     # TODO eval_loss, f1_score = do_eval(sess, Model, testX, testY,iteration,num_classes)
@@ -134,6 +136,7 @@ def do_eval(sess, Model):
             feed_dict[Model.input_y1_length] = batch['article_len']
             feed_dict[Model.tst] = not FLAGS.is_training
             feed_dict[Model.cur_learning] = False
+            feed_dict[Model.is_frozen] = False
         else:
             feed_dict[Model.dropout_keep_prob] = 0.5
             feed_dict[Model.input_x] = batch['article_words']
@@ -142,6 +145,7 @@ def do_eval(sess, Model):
             feed_dict[Model.input_decoder_x] = batch['abstracts_targets']
             feed_dict[Model.value_decoder_x] = batch['article_value']
             feed_dict[Model.tst] = not FLAGS.is_training
+            feed_dict[Model.is_frozen] = False
         curr_eval_loss,logits=sess.run([Model.loss_val,Model.logits],feed_dict)
         curr_acc_score = compute_rouge(logits, batch)
         acc_score += curr_acc_score
