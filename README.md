@@ -70,7 +70,19 @@ Just give it a shot for reproducing the ACL 2016 paper [*Neural Summarization by
       p_t = self.sigmoid_norm(score)
       return h_t, c_t, p_t
   ```
-
+* **Curriculum learning**  
+  Actually new to curriculum learning， just simply connect the weight of the true labels and those predicted with the rate of steps.
+  ```python
+  def weight_control(self, time_step, p_t):
+      # curriculum learning control the weight between true labels and those predicted
+      labels = tf.cast(self.input_y1[:,time_step:time_step+1], dtype=tf.float32)
+      total_step = tf.cast(self.cur_step, dtype=tf.float32)
+      global_step = tf.cast(self.global_step, dtype=tf.float32)
+      weight = tf.divide(global_step, total_step)
+      p_t_curr = (1 - weight) * labels + weight * p_t
+      return p_t_curr
+  ```  
+  
 * **Loss function**  
   Coding the loss function manually instead of using the function *tf.losses.sigmoid_cross_entropy* cause the logits is between 0 and 1  with sigmoid activation and normalization already.  
   ```python
