@@ -18,7 +18,7 @@ Just give it a shot for reproducing the ACL 2016 paper [*Neural Summarization by
   ```
   Run this script to extract the sentences, labels and entitys in the dataset ***cnn-dailymail*** and get them pickled:
   ```bash
-  $ python
+  $ python prepro.py './source_dir/' './target_dir/'
   ``` 
 - **Step3 : Install nvidia-docker**  
   Go for GPUs acceleration. See [*installation*](https://github.com/NVIDIA/nvidia-docker) to get more information for help.  
@@ -27,7 +27,7 @@ Just give it a shot for reproducing the ACL 2016 paper [*Neural Summarization by
   
   ```bash
   $ nvidia-docker pull ufoym/deepo  
-  $ nvidia-docker run 
+  $ nvidia-docker run -p 0.0.0.0:6006:6006 -it -v /home/usrs/yourdir:/data ufoym/deepo env LANG=C.UTF-8 bash
   ```
   enter the bash of *Deepo*, run pip to install the rest： 
   ```bash
@@ -71,18 +71,20 @@ Just give it a shot for reproducing the ACL 2016 paper [*Neural Summarization by
       return h_t, c_t, p_t
   ```
 * **Curriculum learning**  
-  Actually new to curriculum learning， just simply connect the weight of the true labels and those predicted with the rate of steps.
+  Actually new to curriculum learning， just simply connect the weight of the true labels and those predicted with the rate of steps.  
   ```python
   def weight_control(self, time_step, p_t):
       # curriculum learning control the weight between true labels and those predicted
       labels = tf.cast(self.input_y1[:,time_step:time_step+1], dtype=tf.float32)
-      total_step = tf.cast(self.cur_step, dtype=tf.float32)
+      start = tf.cast(self.cur_step_start, dtype=tf.float32)
+      end = tf.cast(self.cur_step_end, dtype=tf.float32)
       global_step = tf.cast(self.global_step, dtype=tf.float32)
-      weight = tf.divide(global_step, total_step)
-      p_t_curr = (1 - weight) * labels + weight * p_t
+      weight = tf.divide(tf.subtract(global_step, start), tf.subtract(end, start))
+      merge = (1. - weight) * labels + weight * p_t
+      cond = tf.greater(start, global_step)
+      p_t_curr = tf.cond(cond, lambda:labels, lambda:merge)
       return p_t_curr
   ```  
-  
 * **Loss function**  
   Coding the loss function manually instead of using the function *tf.losses.sigmoid_cross_entropy* cause the logits is between 0 and 1  with sigmoid activation and normalization already.  
   ```python
@@ -98,6 +100,7 @@ Just give it a shot for reproducing the ACL 2016 paper [*Neural Summarization by
       logits_ = tf.where(cond, logits, ones-logits)
       logits_log = tf.log(logits_)
       losses = -logits_log
+      losses *= self.mask
       loss = tf.reduce_sum(losses, axis=1)
       loss = tf.reduce_mean(loss)     
   ```
