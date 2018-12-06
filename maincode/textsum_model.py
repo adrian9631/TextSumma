@@ -6,7 +6,7 @@ import numpy as py
 class Neuralmodel:
     def __init__(self,extract_sentence_flag,is_training,vocab_size,batch_size,embed_size,learning_rate,cur_step,decay_step,decay_rate,max_num_sequence,
                  sequence_length,filter_sizes,feature_map,use_highway_flag,highway_layers,hidden_size,document_length,max_num_abstract,beam_width,
-                 attention_size,input_y2_max_length,clip_gradients=5.0,initializer=tf.random_normal_initializer(stddev=0.1)):
+                 attention_size,input_y2_max_length,clip_gradients=5.0, initializer=tf.random_normal_initializer(stddev=0.1)):
         """init all hyperparameter:"""
         self.initializer = tf.contrib.layers.xavier_initializer()
         self.initializer_uniform = tf.random_uniform_initializer(minval=-0.05,maxval=0.05)
@@ -21,7 +21,8 @@ class Neuralmodel:
         self.is_training = is_training
         self.tst = tf.placeholder(tf.bool, name='is_training_flag')
         self.learning_rate = tf.Variable(learning_rate, trainable=False, name='learning_rate')
-        self.cur_step = tf.Variable(cur_step, trainable=False, name='total_step_for_cur_learning')
+        self.cur_step_start = tf.Variable(cur_step[0], trainable=False, name='start_for_cur_learning')
+        self.cur_step_end = tf.Variable(cur_step[1], trainable=False, name='end_for_cur_learning')
         self.decay_step = decay_step
         self.decay_rate = decay_rate
 
@@ -174,8 +175,8 @@ class Neuralmodel:
                 raise ValueError("Linear expects shape[1] of arguments: %s" % str(shape))
             input_size = shape[1]
             with tf.variable_scope(scope or "simplelinear"):
-                W = tf.get_variable("W_%d" % mark, [output_size, input_size], dtype = input_.dtype)
-                b = tf.get_variable("b_%d" % mark, [output_size], dtype = input_.dtype)
+                W = tf.get_variable("W_%d" % mark, [output_size, input_size], initializer=self.initializer_uniform, dtype = input_.dtype)
+                b = tf.get_variable("b_%d" % mark, [output_size], initializer=self.initializer_uniform, dtype = input_.dtype)
             return tf.matmul(input_, tf.transpose(W)) + b
 
         with tf.variable_scope("highway"):
@@ -225,12 +226,14 @@ class Neuralmodel:
     def weight_control(self, time_step, p_t):
         # curriculum learning control the weight between true labels and those predicted
         labels = tf.cast(self.input_y1[:,time_step:time_step+1], dtype=tf.float32)
-        total_step = tf.cast(self.cur_step, dtype=tf.float32)
+        start = tf.cast(self.cur_step_start, dtype=tf.float32)
+        end = tf.cast(self.cur_step_end, dtype=tf.float32)
         global_step = tf.cast(self.global_step, dtype=tf.float32)
-        weight = tf.divide(global_step, total_step)
-        p_t_curr = (1 - weight) * labels + weight * p_t
-        #return p_t_curr
-        return labels
+        weight = tf.divide(tf.subtract(global_step, start), tf.subtract(end, start))
+        merge = (1. - weight) * labels + weight * p_t
+        cond = tf.greater(start, global_step)
+        p_t_curr = tf.cond(cond, lambda:labels, lambda:merge)
+        return p_t_curr
 
     def sentence_extractor(self):
         """4.1.1 LSTM(decoder)"""
@@ -390,7 +393,7 @@ class Neuralmodel:
             logits, final_sequence_lengths = self.word_extractor()
             return logits, final_sequence_lengths
 
-    def loss_sentence(self):
+    def loss_sentence(self, l2_lambda = 0.0001):
         # multi_class_labels: [batch_size, max_num_sequence]
         # logits: [batch_size, max_num_sequence]
         # losses: [batch_size, max_num_sequence]
@@ -405,13 +408,16 @@ class Neuralmodel:
             ones = tf.ones_like(logits, dtype=logits.dtype)
             cond  = ( labels > zeros )
             logits_ = tf.where(cond, logits, ones-logits)
-            self.logits = logits_
             logits_log = tf.log(logits_)
             losses = -logits_log
+            losses *= self.mask
+            l2_loss = tf.add_n([tf.nn.l2_loss(v) for v in tf.trainable_variables() if 'bias' not in v.name]) * l2_lambda
+            tf.summary.scalar("l2_loss", l2_loss)
             loss = tf.reduce_sum(losses, axis=1)
             loss = tf.reduce_mean(loss)
             tf.summary.scalar("loss", loss)
-        return loss
+
+        return loss+l2_loss
 
     def loss_word(self, l2_lambda=0.001):
         # logits:  [batch_size, sequence_length, document_length]
@@ -431,7 +437,7 @@ class Neuralmodel:
         with tf.name_scope("train_op_frozen"):
             learning_rate = tf.train.exponential_decay(self.learning_rate, self.global_step, self.decay_step, self.decay_rate, staircase=True)
             self.learning_rate = learning_rate
-            optimizer = tf.train.AdamOptimizer(learning_rate)
+            optimizer = tf.train.AdamOptimizer(learning_rate,beta1=0.99)
             tvars = [tvar for tvar in tf.trainable_variables() if 'embedding' not in tvar.name]
             gradients, variables = zip(*optimizer.compute_gradients(self.loss_val, tvars))
             gradients, _ = tf.clip_by_global_norm(gradients, self.clip_gradients)
@@ -444,7 +450,7 @@ class Neuralmodel:
         with tf.name_scope("train_op"):
             learning_rate = tf.train.exponential_decay(self.learning_rate, self.global_step, self.decay_step, self.decay_rate, staircase=True)
             self.learning_rate = learning_rate
-            optimizer = tf.train.AdamOptimizer(learning_rate)
+            optimizer = tf.train.AdamOptimizer(learning_rate,beta1=0.99)
             gradients, variables = zip(*optimizer.compute_gradients(self.loss_val))
             gradients, _ = tf.clip_by_global_norm(gradients, self.clip_gradients)
             update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
