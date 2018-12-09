@@ -81,6 +81,9 @@ class Neuralmodel:
         else:
             self.logits, self.final_sequence_lengths = self.inference()
 
+        if not self.is_training:
+            return
+
         if extract_sentence_flag:
             print('using sentence extractor...')
             self.loss_val = self.loss_sentence()
@@ -264,7 +267,8 @@ class Neuralmodel:
             # next steps
             for time_step, merge in enumerate(zip(cnn_outputs[:-1], attention_state[1:])):
                 St, At = merge[0], merge[1]
-                p_t = tf.cond(self.cur_learning, lambda: self.weight_control(time_step, p_t), lambda: p_t)
+                if self.is_training:
+                    p_t = tf.cond(self.cur_learning, lambda: self.weight_control(time_step, p_t), lambda: p_t)
                 h_t, c_t, p_t = self.lstm_single_step(St, At, h_t, c_t, p_t)
                 p_t_lstm_list.append(p_t)
                 tf.summary.histogram("sen_t", St)

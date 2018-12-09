@@ -1,8 +1,10 @@
 # -*- coding:utf-8 -*-
-import numpy as np
+import re
+import os
+import json
 import pickle
 import random
-import os
+import numpy as np
 from tflearn.data_utils import pad_sequences
 
 PAD_TOKEN = '[PAD]'
@@ -19,14 +21,14 @@ def save(filename, data):
     with open(filename, 'wb') as output:
         pickle.dump(data, output)
 
-def Batch(data_path, vocab_path, entity_path, size, hps):
+def Batch(data_path, vocab_path, size, hps):
 
     res = {}
     filenames = os.listdir(data_path)
     random.shuffle(filenames)
     label_sentences, article_value, article_words, article_len, abstracts_targets, abstracts_inputs, abstracts_len, results = [], [], [], [], [], [], [], []
-    vocab = Vocab(vocab_path, entity_path, hps.vocab_size)
-    for cnt, filename in enumerate(filenames):
+    vocab = Vocab(vocab_path, hps.vocab_size)
+    for cnt, filename in enumerate(filenames[:200000]):
         pickle_path = os.path.join(data_path, filename)
         res = load(pickle_path)
         label, value, words, len_a, targets, inputs, lens = Example(res['article'],res['abstract'],res['label'],res['entity'], vocab, hps) # TODO
@@ -39,7 +41,7 @@ def Batch(data_path, vocab_path, entity_path, size, hps):
         abstracts_len.append(lens)
         results.append(res)
 
-        if (cnt+1) % size == 0 and cnt != 0:
+        if (cnt+1) % size == 0:
             data_dict ={}
             data_dict['label_sentences'] = label_sentences
             data_dict['article_value'] = article_value
@@ -105,10 +107,61 @@ def Example(article, abstracts, label, entity, vocab, hps):
         abstracts_len = abstracts_len[:hps.max_num_abstract]
     while abstracts_len.shape[0] < hps.max_num_abstract:
         abstracts_len = np.concatenate((abstracts_len, [1]))
+
     return label_sentences, article_value, article_words, article_len, abstracts_targets, abstracts_inputs, abstracts_len
 
+def Batch_F(file_data, vocab_path, hps):
+
+    vocab = Vocab(vocab_path, hps.vocab_size)
+    for res in file_data:
+        article_value, article_words, article_len = Example_P(res['article'],res['entity'], vocab, hps)
+        data_dict ={}
+        data_dict['article_value'] = [article_value]
+        data_dict['article_words'] = [article_words]
+        data_dict['article_len'] = [article_len]
+        data_dict['original'] = res
+        yield data_dict
+
+def Batch_P(data_path, vocab_path, hps):
+
+    filenames = os.listdir(data_path)
+    vocab = Vocab(vocab_path, hps.vocab_size)
+    for cnt, filename in enumerate(filenames):
+        pickle_path = os.path.join(data_path, filename)
+        res = load(pickle_path)
+        article_value, article_words, article_len = Example_P(res['article'],res['entity'], vocab, hps)
+        data_dict ={}
+        data_dict['article_value'] = [article_value]
+        data_dict['article_words'] = [article_words]
+        data_dict['article_len'] = [article_len]
+        data_dict['original'] = res
+        yield data_dict
+
+def Example_P(article, entity, vocab, hps):
+
+    # get ids of special tokens
+    pad_id = vocab.word2id(PAD_TOKEN)
+
+    """process the article"""
+    # create vocab and word 2 id
+    article_value = value2ids(article, vocab, hps.document_length)
+    # word 2 id
+    article_words = article2ids(article, vocab)
+    # num sentence
+    article_len = len(article)
+    # word level padding
+    article_words = pad_sequences(article_words, maxlen=hps.sequence_length, value=pad_id)
+    # sentence level padding
+    pad_article = np.expand_dims(np.zeros(hps.sequence_length, dtype=np.int32), axis = 0)
+    if article_words.shape[0] > hps.max_num_sequence:
+        article_words = article_words[:hps.max_num_sequence]
+    while article_words.shape[0] < hps.max_num_sequence:
+        article_words = np.concatenate((article_words, pad_article))
+
+    return article_value, article_words, article_len
+
 class Vocab(object):
-    def __init__(self, vocab_file, entity_file, max_size):
+    def __init__(self, vocab_file, max_size):
         self._word_to_id = {}
         self._id_to_word = {}
         self._count = 0
@@ -134,21 +187,12 @@ class Vocab(object):
                 if max_size != 0 and self._count >= max_size:
                     break
 
-        with open(entity_file, 'rb') as output:
-            data = pickle.load(output)
-            for key,value in data.items():
-                self._word_to_id[key] = self._count
-                self._id_to_word[self._count] = key
-                self._count += 1
-
     def word2id(self, word):
         if word not in self._word_to_id:
             return self._word_to_id[UNKNOWN_TOKEN]
         return self._word_to_id[word]
 
     def id2word(self, word_id):
-        #if word_id not in self._id_to_word:
-        #    raise ValueError('Id not found in vocab: %d' % word_id)
         return self._id_to_word[word_id]
 
     def size(self):
@@ -261,3 +305,13 @@ def outputids2words(id_list, vocab):
         words.append(w)
     return words
 
+class MyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        else:
+            return super(MyEncoder, self).default(obj)

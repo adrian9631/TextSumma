@@ -17,13 +17,12 @@ tf.app.flags.DEFINE_string("log_path","../log/","path of summary log.")
 tf.app.flags.DEFINE_string("tra_data_path","../src/neuralsum/dailymail/tra/","path of training data.")
 tf.app.flags.DEFINE_string("tst_data_path","../src/neuralsum/dailymail/tst/","path of test data.")
 tf.app.flags.DEFINE_string("val_data_path","../src/neuralsum/dailymail/val/","path of validation data.")
-tf.app.flags.DEFINE_string("entity_path","../cache/entity_dict.pkl", "path of entity data.")
 tf.app.flags.DEFINE_string("vocab_path","../cache/vocab","path of vocab frequency list")
-tf.app.flags.DEFINE_integer("vocab_size",200000,"maximum vocab size.")
+tf.app.flags.DEFINE_integer("vocab_size",199900,"maximum vocab size.")
 
 tf.app.flags.DEFINE_float("learning_rate",0.0001,"learning rate")
 
-tf.app.flags.DEFINE_integer("is_frozen_step", 500, "how many steps before fine-tuning the embedding.")
+tf.app.flags.DEFINE_integer("is_frozen_step", 400, "how many steps before fine-tuning the embedding.")
 tf.app.flags.DEFINE_integer("decay_step", 5000, "how many steps before decay learning rate.")
 tf.app.flags.DEFINE_float("decay_rate", 0.1, "Rate of decay for learning rate.")
 tf.app.flags.DEFINE_string("ckpt_dir","../ckpt/","checkpoint location for the model")
@@ -47,7 +46,7 @@ tf.app.flags.DEFINE_boolean("use_embedding",True,"whether to use embedding or no
 tf.app.flags.DEFINE_string("word2vec_model_path","../w2v/benchmark_sg1_e150_b.vector","word2vec's vocabulary and vectors")
 filter_sizes = [1,2,3,4,5,6,7]
 feature_map = [20,20,30,40,50,70,70]
-cur_learning_steps = [1500,4500]
+cur_learning_steps = [1500,4000]
 
 def main(_):
     config = tf.ConfigProto()
@@ -67,14 +66,14 @@ def main(_):
             sess.run(tf.global_variables_initializer())
             summary_writer = tf.summary.FileWriter(logdir=FLAGS.log_path, graph=sess.graph)
             if FLAGS.use_embedding: #load pre-trained word embedding
-                assign_pretrained_word_embedding(sess, FLAGS.vocab_path, FLAGS.entity_path, FLAGS.vocab_size, Model,FLAGS.word2vec_model_path)
+                assign_pretrained_word_embedding(sess, FLAGS.vocab_path, FLAGS.vocab_size, Model,FLAGS.word2vec_model_path)
         curr_epoch=sess.run(Model.epoch_step)
 
         batch_size=FLAGS.batch_size
         iteration=0
         for epoch in range(curr_epoch,FLAGS.num_epochs):
             loss, counter =  0.0, 0
-            train_gen = Batch(FLAGS.tra_data_path,FLAGS.vocab_path,FLAGS.entity_path,FLAGS.batch_size,FLAGS)
+            train_gen = Batch(FLAGS.tra_data_path,FLAGS.vocab_path,FLAGS.batch_size,FLAGS)
             for batch in tqdm(train_gen):
                 iteration=iteration+1
                 if epoch==0 and counter==0:
@@ -124,7 +123,7 @@ def main(_):
 def do_eval(sess, Model):
     eval_loss, eval_counter, acc_score= 0.0, 0, 0.0
     batch_size = 20
-    valid_gen = Batch(FLAGS.tst_data_path,FLAGS.vocab_path,FLAGS.entity_path,batch_size,FLAGS)
+    valid_gen = Batch(FLAGS.tst_data_path,FLAGS.vocab_path,batch_size,FLAGS)
     for batch in valid_gen:
         feed_dict={}
         if FLAGS.extract_sentence_flag:
@@ -186,9 +185,9 @@ def compute_rouge(logits, batch):
 
     return acc_score
 
-def assign_pretrained_word_embedding(sess,vocab_path,entity_path,vocab_size,Model,word2vec_model_path):
+def assign_pretrained_word_embedding(sess,vocab_path,vocab_size,Model,word2vec_model_path):
     print("using pre-trained word emebedding.started.word2vec_model_path:",word2vec_model_path)
-    vocab = Vocab(vocab_path, entity_path, vocab_size)
+    vocab = Vocab(vocab_path, vocab_size)
     word2vec_model = KeyedVectors.load_word2vec_format(word2vec_model_path, binary=True)
     bound = np.sqrt(6.0) / np.sqrt(vocab_size)  # bound for random variables.
     count_exist = 0;
