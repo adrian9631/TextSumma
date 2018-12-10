@@ -40,6 +40,8 @@ Just give it a shot for reproducing the ACL 2016 paper [*Neural Summarization by
   $ python train_model.py
   $ python predict_model.py
   ```
+ * **Requirements**:
+ Python3.6 Tensorflow 1.8.0
 
 ## Model details
 
@@ -118,8 +120,64 @@ Just give it a shot for reproducing the ACL 2016 paper [*Neural Summarization by
 
 <img src="https://drive.google.com/uc?export=download&id=1yJ4NQZ1IsEYc-kPDJ3RN8E9tryPMlVQq" width = "450" height = "200" alt="sentence_loss" align=center />
 
-* **Figure**
+* **Figure**  
+Some results seems to be nice.
+```json
+{
+  "entity": {
+    "@entity31": "Jason Kernick", 
+    "@entity1": "Manchester", 
+    "@entity9": "Ashton Canal", 
+    "@entity46": "Environment Agency", 
+    "@entity44": "Etihad stadium", 
+    "@entity45": "Manchester City", 
+    "@entity115": "Easter Sunday", 
+    "@entity85": "Clayton", 
+    "@entity66": "Richard Kernick", 
+    "@entity109": "Etihad", 
+    "@entity137": "Greater Manchester Fire and Rescue Service", 
+    "@entity136": "Salford"
+  }, 
+  "abstract": [
+    "the @entity9 became filled with heavy suds due to a 6ft wall of foam created by fire crews tackling a blaze", 
+    "the fire at a nearby chemical plant saw water from fire service mix with detergents that were being stored there", 
+    "the foam covered a 30 metre stretch of the canal near @entity45 's @entity44 in @entity85"
+  ], 
+  "article": [
+    "a @entity1 canal was turned into a giant bubble bath after fire crews tackling a nearby chemical plant blaze saw their water mix with a detergent creating a six foot wall of foam", 
+    "the @entity9 was filled with heavy suds which appeared after a fire at an industrial unit occupied by a drug development company", 
+    "it is believed that the water used by firefighters to dampen down the flames mixed with the detergent being stored in the burning buildings", 
+    "now the @entity46 have launched an investigation to assess if the foam has impacted on wildlife after concerns were raised for the safety of fish in the affected waters", 
+    "a spokesman for the agency said : ' @entity46 is investigating after receiving reports of foam on a 30 metre stretch of the @entity9 , @entity1", 
+    "' initial investigations by @entity46 officers show that there appears to have been minimal impact on water quality , but our officers will continue to monitor and respond as necessary", 
+    "@entity66 takes a picture on his mobile phone of his boat trying to negotiate a lock and the foam , which ran into the @entity9 a cyclist takes a picture on his mobile phone as the foam comes up on to the cycle path", 
+    "the @entity46 are investigating to assess of the foam has harmed any wildlife the foam reached as high as six foot in some places and covered a 30 metre stretch along the water in the @entity85 area of @entity1 ' we are working with the fire service and taking samples of the foam to understand what it is made of , and what impact it may have on local wildlife in and around the canal", 
+    "' at the height of the blaze on sunday afternoon , which caused the foam , up to 50 firefighters were tackling the fire and police were also forced to wear face masks", 
+    "families in east @entity1 were urged to say indoors after a blast was reported at the industrial unit , which is just a few hundred yards from the @entity45 training ground on the @entity109 campus", 
+    "the fire at the chemical factory next to @entity45 's @entity44 send a huge plume of smoke across the city on @entity115 police wearing face masks went around neighbouring streets with loudspeakers urging people to stay inside while the fire raged police officers also told children on bikes and mothers pushing prams near the scene to go home and went around neighbouring streets with loudspeakers urging people to stay inside", 
+    "a huge plume of smoke also turned the sky black and could be seen right across the city and even into @entity136", 
+    "according to @entity137 , the fire was fueled by wooden pallets and unidentified chemicals but an investigation into the cause of the fire is still ongoing ."
+  ], 
+  "label": [0, 1, 4, 7, 10], 
+  "score": [
+    [10, 0.6629698276519775, "the fire at the chemical factory next to @entity45 's @entity44 send a huge plume of smoke across the city on @entity115 police wearing face masks went around neighbouring streets with loudspeakers urging people to stay inside while the fire raged police officers also told children on bikes and mothers pushing prams near the scene to go home and went around neighbouring streets with loudspeakers urging people to stay inside"], 
+    [0, 0.6484572291374207, "a @entity1 canal was turned into a giant bubble bath after fire crews tackling a nearby chemical plant blaze saw their water mix with a detergent creating a six foot wall of foam"], 
+    [7, 0.5045493841171265, "the @entity46 are investigating to assess of the foam has harmed any wildlife the foam reached as high as six foot in some places and covered a 30 metre stretch along the water in the @entity85 area of @entity1 ' we are working with the fire service and taking samples of the foam to understand what it is made of , and what impact it may have on local wildlife in and around the canal"], 
+    [1, 0.45766133069992065, "the @entity9 was filled with heavy suds which appeared after a fire at an industrial unit occupied by a drug development company"], 
+    [4, 0.3478981852531433, "a spokesman for the agency said : ' @entity46 is investigating after receiving reports of foam on a 30 metre stretch of the @entity9 , @entity1"], 
+    [3, 0.3398599326610565, "now the @entity46 have launched an investigation to assess if the foam has impacted on wildlife after concerns were raised for the safety of fish in the affected waters"], 
+    [8, 0.3396754860877991, "' at the height of the blaze on sunday afternoon , which caused the foam , up to 50 firefighters were tackling the fire and police were also forced to wear face masks"], 
+    [6, 0.32800495624542236, "@entity66 takes a picture on his mobile phone of his boat trying to negotiate a lock and the foam , which ran into the @entity9 a cyclist takes a picture on his mobile phone as the foam comes up on to the cycle path"], 
+    [9, 0.29064181447029114, "families in east @entity1 were urged to say indoors after a blast was reported at the industrial unit , which is just a few hundred yards from the @entity45 training ground on the @entity109 campus"], 
+    [2, 0.25459226965904236, "it is believed that the water used by firefighters to dampen down the flames mixed with the detergent being stored in the burning buildings"], 
+    [5, 0.2020452618598938, "' initial investigations by @entity46 officers show that there appears to have been minimal impact on water quality , but our officers will continue to monitor and respond as necessary"], 
+    [12, 0.05926991254091263, "according to @entity137 , the fire was fueled by wooden pallets and unidentified chemicals but an investigation into the cause of the fire is still ongoing ."], 
+    [11, 0.05400165915489197, "a huge plume of smoke also turned the sky black and could be seen right across the city and even into @entity136"]
+  ]
+}
 
+```
+This one remains a little complicated.
 ```json
 {
   "entity": {
@@ -218,6 +276,7 @@ Just give it a shot for reproducing the ACL 2016 paper [*Neural Summarization by
   ]
 }
 ```
+Pls get more predicted results from [*here*](https://drive.google.com/open?id=1cXrR1kY-tlxArB-F9FSZba2T2RscAYVS)
 
 ## Discuss
 - Tuning the learning rate.
