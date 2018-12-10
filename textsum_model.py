@@ -278,7 +278,7 @@ class Neuralmodel:
 
         return logits
 
-    def word_extractor(self):
+    def word_extractor(self): # TODO
         # LSTM inputs: h_t = LSTM(wt-1,h_t-1)
         # Attention: h~t = Attention(h_t,h)
         logits_list = []

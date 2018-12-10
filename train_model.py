@@ -46,7 +46,7 @@ tf.app.flags.DEFINE_boolean("use_embedding",True,"whether to use embedding or no
 tf.app.flags.DEFINE_string("word2vec_model_path","../w2v/benchmark_sg1_e150_b.vector","word2vec's vocabulary and vectors")
 filter_sizes = [1,2,3,4,5,6,7]
 feature_map = [20,20,30,40,50,70,70]
-cur_learning_steps = [1500,4000]
+cur_learning_steps = [500,2500]
 
 def main(_):
     config = tf.ConfigProto()
@@ -85,7 +85,7 @@ def main(_):
                     feed_dict[Model.input_y1] = batch['label_sentences']
                     feed_dict[Model.input_y1_length] = batch['article_len']
                     feed_dict[Model.tst] = FLAGS.is_training
-                    feed_dict[Model.cur_learning] = True if cur_learning_steps[1] > iteration else False
+                    feed_dict[Model.cur_learning] = True if cur_learning_steps[1] > iteration and epoch == 0 else False
                 else:
                     feed_dict[Model.dropout_keep_prob] = 0.5
                     feed_dict[Model.input_x] = batch['article_words']
@@ -94,27 +94,23 @@ def main(_):
                     feed_dict[Model.input_decoder_x] = batch['abstracts_targets']
                     feed_dict[Model.value_decoder_x] = batch['article_value']
                     feed_dict[Model.tst] = FLAGS.is_training
-                train_op = Model.train_op_frozen if FLAGS.is_frozen_step > iteration else Model.train_op
+                train_op = Model.train_op_frozen if FLAGS.is_frozen_step > iteration and epoch == 0 else Model.train_op
                 curr_loss,lr,_,_,summary,logits=sess.run([Model.loss_val,Model.learning_rate,train_op,Model.global_increment,Model.merge,Model.logits],feed_dict)
                 summary_writer.add_summary(summary, global_step=iteration)
                 loss,counter=loss+curr_loss,counter+1
                 if counter %50==0:
                     print("Epoch %d\tBatch %d\tTrain Loss:%.3f\tLearning rate:%.5f" %(epoch,counter,loss/float(counter),lr))
-                ########################################################################################################
-                if iteration % 1000 == 0: # eval every 3000 steps.
+                if iteration % 1000 == 0:
                     eval_loss, acc_score = do_eval(sess, Model)
                     print("Epoch %d Validation Loss:%.3f\t Acc:%.3f" % (epoch, eval_loss, acc_score))
                     # save model to checkpoint
                     save_path = FLAGS.ckpt_dir + "model.ckpt"
                     saver.save(sess, save_path, global_step=epoch)
-                ########################################################################################################
             #epoch increment
             print("going to increment epoch counter....")
             sess.run(Model.epoch_increment)
             print(epoch,FLAGS.validate_every,(epoch % FLAGS.validate_every==0))
             if epoch % FLAGS.validate_every==0:
-                # TODO eval_loss,f1_score=do_eval(sess,Model,testX,testY,iteration,num_classes)
-                # TODO print("Epoch %d Validation Loss:%.3f\tF1 Score:%.3f" % (epoch,eval_loss,f1_score))
                 #save model to checkpoint
                 save_path=FLAGS.ckpt_dir+"model.ckpt"
                 saver.save(sess,save_path,global_step=epoch)
@@ -142,44 +138,29 @@ def do_eval(sess, Model):
             feed_dict[Model.value_decoder_x] = batch['article_value']
             feed_dict[Model.tst] = not FLAGS.is_training
         curr_eval_loss,logits=sess.run([Model.loss_val,Model.logits],feed_dict)
-        curr_acc_score = compute_rouge(logits, batch)
+        curr_acc_score = compute_label(logits, batch)
         acc_score += curr_acc_score
         eval_loss += curr_eval_loss
         eval_counter += 1
 
     return eval_loss/float(eval_counter), acc_score/float(eval_counter)
 
-def compute_rouge(logits, batch):
-
-    # from logits
+def compute_label(logits, batch):
     imp_pos = np.argsort(logits)
-    abs_num = [ len(abst) for abst in batch['abstracts_len']]
-    sen_pos = [ pos[:num] for pos, num in zip(imp_pos, abs_num) ]
-
-    # from corpus
-    rouge = Rouge()
-    rou_pos = []
-    for data_dict in batch['original']:
-        article = data_dict['article']
-        abstracts = data_dict['abstract']
-        rou_pos_ = []
-        for abstract in abstracts:
-            mark = 0
-            best = 0.0
-            for pos, sentence in enumerate(article):
-                scores = rouge.get_scores(hyps = abstract, refs = sentence)
-                f1 = scores[0]['rouge-1']['f'] + scores[0]['rouge-2']['f'] + scores[0]['rouge-l']['f']
-                if f1 > best: best = f1 ; mark = pos
-            rou_pos_.append(mark)
-        rou_pos.append(rou_pos_)
+    lab_num = [ len(res['label']) for res in batch['original']]
+    lab_pos = [ res['label'] for res in batch['original']]
+    abs_num = [ res['abstract'] for res in batch['original']]
+    sen_pos = [ pos[:num] for pos, num in zip(imp_pos, lab_num)]
 
     # compute
     acc_list = []
-    for sen, rou in zip(sen_pos, rou_pos):
+    for sen, lab, abst in zip(sen_pos, lab_pos, abs_num):
         sen = set(sen)
-        rou = set(rou)
-        #acc = 2.0 - len(sen|rou) / float(len(sen))
-        acc = float(len(sen&rou)) / len(rou)
+        lab = set(lab)
+        if len(lab) == 0 or len(abst) == 0:
+            continue
+        score = float(len(sen&lab)) / len(abst)
+        acc = 1.0 if score > 1.0 else score
         acc_list.append(acc)
     acc_score = np.mean(acc_list)
 

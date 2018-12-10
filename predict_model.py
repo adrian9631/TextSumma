@@ -87,8 +87,6 @@ def main(_):
             feed_dict={}
             feed_dict[Model.dropout_keep_prob] = 1.0
             feed_dict[Model.input_x] = batch['article_words']
-            #feed_dict[Model.input_y1] = batch['label_sentences']
-            #feed_dict[Model.input_y1_length] = batch['article_len']
             feed_dict[Model.tst] = False
             feed_dict[Model.cur_learning] = False
             logits = sess.run(Model.logits, feed_dict=feed_dict)
@@ -123,8 +121,10 @@ def process_file(data_path, entity_path):
 def compute_score(logits, batch):
     data = batch['original']
     score_list = []
+    pos = 0
     for sent, score in zip(data['article'], logits[0][:len(data['article'])]):
-        score_list.append((sent, score))
+        score_list.append((pos, score, sent))
+        pos += 1
     data['score'] = sorted(score_list, key=lambda x:x[1], reverse=True)
     return data
 
