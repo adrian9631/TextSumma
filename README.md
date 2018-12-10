@@ -279,10 +279,12 @@ This one remains a little complicated.
 Pls get more predicted results from [*here*](https://drive.google.com/open?id=1cXrR1kY-tlxArB-F9FSZba2T2RscAYVS)
 
 ## Discuss
+
 - Tuning the learning rate.
 - Freeze the weights of embedding for several steps or not.
 - Choose a proper step range for shift the value gradually to the probability predicted by the model.
 - The initialization of the weights and bias.
+- Find a proper way to evaluate while training.(just observe the loss in validation with early stop by my way)
 
 ## TODO list
 - NN-WE word extractor remain to be done.  
