@@ -10,7 +10,7 @@ Just give it a shot for reproducing the ACL 2016 paper [*Neural Summarization by
    $ tar --extract -v --file ../statmt.org/tar_archives/training-monolingual.tgz --wildcards training-monolingual/news.20??.en.shuffled
    $ ./scripts/get-data.sh
    ```
-   The dataset ***cnn-dailymail*** with highlights in this paper offered by the authors is in [*here*](https://docs.google.com/uc?id=0B0Obe9L1qtsnSXZEd0JCenIyejg&export=download).  
+   The dataset ***cnn-dailymail*** with highlights in this paper offered by the authors is in [*here*](https://docs.google.com/uc?id=0B0Obe9L1qtsnSXZEd0JCenIyejg&export=download) and vocab in this repository.  
 - **Step2 : Preprocess**  
   Run this script to training the word vectors in the dataset ***one-billion-word-language-modeling-benchmark***:  
   ```bash
@@ -29,14 +29,16 @@ Just give it a shot for reproducing the ACL 2016 paper [*Neural Summarization by
   $ nvidia-docker pull ufoym/deepo  
   $ nvidia-docker run -p 0.0.0.0:6006:6006 -it -v /home/usrs/yourdir:/data ufoym/deepo env LANG=C.UTF-8 bash
   ```
-  enter the bash of *Deepo*, run pip to install the rest： 
+  enter the bash of *Deepo*, run pip to install the rest: 
   ```bash
   $ pip install gensim rouge tflearn tqdm
   ```
-* **Step5: Train the model and predict**  
+* **Step5: Train the model and predict**
 
+  Please add option **-h** to get more help in flag settings.  
   ```bash
   $ python train_model.py
+  $ python predict_model.py
   ```
 
 ## Model details
@@ -108,14 +110,127 @@ Just give it a shot for reproducing the ACL 2016 paper [*Neural Summarization by
 
 ## Performance
 
-* **probability for the sentences**
+* **Probability for the sentences in several timesteps**
 
-* **loss**
+<img src="https://drive.google.com/uc?export=download&id=18x5jRQ6VWke9PHSRLORxcIhSDjR3vvNx" width = "1000" height = "600" alt="sentence_model" align=center />
 
-* **evaluation**
+* **Training loss**
+
+<img src="https://drive.google.com/uc?export=download&id=1yJ4NQZ1IsEYc-kPDJ3RN8E9tryPMlVQq" width = "450" height = "200" alt="sentence_loss" align=center />
+
+* **Figure**
+
+```json
+{
+  "entity": {
+    "@entity27": "Belichick", 
+    "@entity24": "Hiss", 
+    "@entity80": "Gisele Bündchen", 
+    "@entity97": "Sport Illustrated", 
+    "@entity115": "Julian Edelman", 
+    "@entity84": "Washington", 
+    "@entity86": "Seattle Seahawks", 
+    "@entity110": "Massachusetts US Senator", 
+    "@entity3": "Patriots", 
+    "@entity2": "Super Bowl", 
+    "@entity0": "Obama", 
+    "@entity4": "White House", 
+    "@entity8": "South Lawn", 
+    "@entity56": "Boomer Esiason", 
+    "@entity111": "Linda Holliday", 
+    "@entity75": "Donovan McNabb", 
+    "@entity96": "Las Vegas", 
+    "@entity30": "Chicago", 
+    "@entity33": "Boston", 
+    "@entity102": "Rob Gronkowski", 
+    "@entity99": "CBS", 
+    "@entity98": "Les Moonves", 
+    "@entity108": "Bellichick", 
+    "@entity109": "John Kerry", 
+    "@entity95": "Floyd Mayweather Jr.", 
+    "@entity94": "Manny Pacquiao", 
+    "@entity117": "Danny Amendola", 
+    "@entity62": "Bush Administration", 
+    "@entity44": "Bob Kraft", 
+    "@entity47": "Super Bowl MVP", 
+    "@entity68": "Showoffs", 
+    "@entity66": "US Senator", 
+    "@entity67": "White House Correspondents dinner", 
+    "@entity113": "George W. Bush", 
+    "@entity48": "Brady"
+  }, 
+  "abstract": [
+    "@entity48 cited ' prior family commitments ' in bowing out of meeting with @entity0", 
+    "has been to the @entity4 to meet president @entity113 for previous @entity2 wins"
+  ], 
+  "article": [
+    "president @entity0 invited the @entity2 champion @entity3 to the @entity4 on thursday - but could n't help but get one last deflategate joke in", 
+    "the president opened his speech on the @entity8 by remarking ' that whole ( deflategate ) story got blown out of proportion , ' referring to an investigation that 11 out of 12 footballs used in the afc championship game were under - inflated", 
+    "but then came the zinger : ' i usually tell a bunch of jokes at these events , but with the @entity3 in town i was worried that 11 out of 12 of them would fall flat", 
+    "coach @entity27 , who is notoriously humorless , responded by giving the president a thumbs down", 
+    "@entity0 was flanked by @entity27 and billionaire @entity3 owner @entity44", 
+    "missing from the occasion , though was the @entity47 and the team 's biggest star - @entity48", 
+    "a spokesman for the team cited ' prior family commitments ' as the reason @entity48 , 37 , did n't attend the ceremony", 
+    "sports commentators , including retired football great @entity56 , speculated that @entity48 snubbed @entity0 because he 's from the ' wrong political party", 
+    "' the superstar athlete has been to the @entity4 before", 
+    "he does have three other @entity2 rings , afterall", 
+    "but all the prior championships were under the @entity62", 
+    "february 's win was the first for the @entity3 since @entity0 took office", 
+    "@entity48 has also met @entity0 at least once before , as well", 
+    "he was pictured with the then - @entity66 at the 2005 @entity67", 
+    "@entity68 : the @entity3 gathered the team 's four @entity2 trophies won under coach @entity27 ( right , next to president @entity0 )", 
+    "@entity48 won his fourth @entity2 ring in february - and his first since president @entity0 took office @entity48 met president @entity0 at least once", 
+    "he is pictured here with the then - @entity66 and rival quarterback @entity75 in 2005 it 's not clear what @entity48 's prior commitment was", 
+    "his supermodel wife @entity80 , usually active on social media , gives no hint where the family is today if not in @entity84", 
+    "@entity48 led the @entity3 to his fourth @entity2 victory in february after defeating the @entity86 28 - 24", 
+    "despite his arm and movement being somewhat diminished by age , @entity48 's leadership and calm under pressure also won him @entity47 - his third", 
+    "whatever is taking up @entity48 's time this week , he made time next week to be ringside at the @entity95 - @entity94 fight in @entity96 next weekend", 
+    "according to @entity97 , @entity48 appealed directly to @entity99 president @entity98 for tickets to the much - touted matchup", 
+    "@entity3 tight end @entity102 could n't help but mug for the camera as the commander in chief gave a speech @entity0 walks with billionaire @entity3 owner @entity44 and coach @entity108 to the speech secretary of state @entity109 , a former @entity110 , greets @entity27 's girlfriend @entity111 at the ceremony @entity48 went to the @entity4 to meet president @entity113 after winning the @entity2 in 2005 and in 2004", 
+    "he 's not going to be there this year @entity3 players @entity115 and @entity117 snap pics in the @entity4 before meeting president @entity0 on thursday"
+  ], 
+  "label": [0, 6, 7, 12, 14, 15, 18, 22, 23], 
+  "score": [
+    [1, 0.8683828115463257, "the president opened his speech on the @entity8 by remarking ' that whole ( deflategate ) story got blown out of proportion , ' referring to an investigation that 11 out of 12 footballs used in the afc championship game were under - inflated"], 
+    [0, 0.8339700102806091, "president @entity0 invited the @entity2 champion @entity3 to the @entity4 on thursday - but could n't help but get one last deflategate joke in"], 
+    [22, 0.7730730772018433, "@entity3 tight end @entity102 could n't help but mug for the camera as the commander in chief gave a speech @entity0 walks with billionaire @entity3 owner @entity44 and coach @entity108 to the speech secretary of state @entity109 , a former @entity110 , greets @entity27 's girlfriend @entity111 at the ceremony @entity48 went to the @entity4 to meet president @entity113 after winning the @entity2 in 2005 and in 2004"], 
+    [14, 0.7569227814674377, "@entity68 : the @entity3 gathered the team 's four @entity2 trophies won under coach @entity27 ( right , next to president @entity0 )"], 
+    [15, 0.6214166879653931, "@entity48 won his fourth @entity2 ring in february - and his first since president @entity0 took office @entity48 met president @entity0 at least once"], 
+    [18, 0.4963235855102539, "@entity48 led the @entity3 to his fourth @entity2 victory in february after defeating the @entity86 28 - 24"], 
+    [16, 0.45303720235824585, "he is pictured here with the then - @entity66 and rival quarterback @entity75 in 2005 it 's not clear what @entity48 's prior commitment was"], 
+    [5, 0.4204302430152893, "missing from the occasion , though was the @entity47 and the team 's biggest star - @entity48"], 
+    [7, 0.41678884625434875, "sports commentators , including retired football great @entity56 , speculated that @entity48 snubbed @entity0 because he 's from the ' wrong political party"], 
+    [20, 0.4135805070400238, "whatever is taking up @entity48 's time this week , he made time next week to be ringside at the @entity95 - @entity94 fight in @entity96 next weekend"], 
+    [6, 0.3958345353603363, "a spokesman for the team cited ' prior family commitments ' as the reason @entity48 , 37 , did n't attend the ceremony"], 
+    [4, 0.37495893239974976, "@entity0 was flanked by @entity27 and billionaire @entity3 owner @entity44"], 
+    [21, 0.3466879427433014, "according to @entity97 , @entity48 appealed directly to @entity99 president @entity98 for tickets to the much - touted matchup"], 
+    [19, 0.3316606283187866, "despite his arm and movement being somewhat diminished by age , @entity48 's leadership and calm under pressure also won him @entity47 - his third"], 
+    [2, 0.29267093539237976, "but then came the zinger : ' i usually tell a bunch of jokes at these events , but with the @entity3 in town i was worried that 11 out of 12 of them would fall flat"], 
+    [23, 0.27186375856399536, "he 's not going to be there this year @entity3 players @entity115 and @entity117 snap pics in the @entity4 before meeting president @entity0 on thursday"], 
+    [11, 0.26710671186447144, "february 's win was the first for the @entity3 since @entity0 took office"], 
+    [17, 0.17511016130447388, "his supermodel wife @entity80 , usually active on social media , gives no hint where the family is today if not in @entity84"], 
+    [3, 0.16352418065071106, "coach @entity27 , who is notoriously humorless , responded by giving the president a thumbs down"], 
+    [13, 0.14906153082847595, "he was pictured with the then - @entity66 at the 2005 @entity67"], 
+    [12, 0.1384015828371048, "@entity48 has also met @entity0 at least once before , as well"], 
+    [10, 0.07186555117368698, "but all the prior championships were under the @entity62"], 
+    [8, 0.07148505747318268, "' the superstar athlete has been to the @entity4 before"], 
+    [9, 0.035264041274785995, "he does have three other @entity2 rings , afterall"]
+  ]
+}
+```
 
 ## Discuss
+- Tuning the learning rate.
+- Freeze the weights of embedding for several steps or not.
+- Choose a proper step range for shift the value gradually to the probability predicted by the model.
+- The initialization of the weights and bias.
 
 ## TODO list
+- NN-WE word extractor remain to be done.  
+- Remain oov and ner problems while using raw data. 
+- Using Threading and Queues in tensorflow to load the batch.  
 
 ## Credits
+- Thanks for the authors of the paper.
+- Borrow some code from [*text_classification*](https://github.com/brightmart/text_classification) and learn a lot.
+- A great job [*pointer-generator*](https://github.com/abisee/pointer-generator) in text summarization that should be appreciated.
