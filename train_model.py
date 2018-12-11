@@ -101,8 +101,10 @@ def main(_):
                 if counter %50==0:
                     print("Epoch %d\tBatch %d\tTrain Loss:%.3f\tLearning rate:%.5f" %(epoch,counter,loss/float(counter),lr))
                 if iteration % 1000 == 0:
-                    eval_loss, acc_score = do_eval(sess, Model)
-                    print("Epoch %d Validation Loss:%.3f\t Acc:%.3f" % (epoch, eval_loss, acc_score))
+                    eval_loss = do_eval(sess, Model)
+                    print("Epoch %d Validation Loss:%.3f\t " % (epoch, eval_loss))
+                    # TODO eval_loss, acc_score = do_eval(sess, Model)
+                    # TODO print("Epoch %d Validation Loss:%.3f\t Acc:%.3f" % (epoch, eval_loss, acc_score))
                     # save model to checkpoint
                     save_path = FLAGS.ckpt_dir + "model.ckpt"
                     saver.save(sess, save_path, global_step=epoch)
@@ -117,7 +119,8 @@ def main(_):
         summary_writer.close()
 
 def do_eval(sess, Model):
-    eval_loss, eval_counter, acc_score= 0.0, 0, 0.0
+    eval_loss, eval_counter= 0.0, 0
+    # eval_loss, eval_counter, acc_score= 0.0, 0, 0.0
     batch_size = 20
     valid_gen = Batch(FLAGS.tst_data_path,FLAGS.vocab_path,batch_size,FLAGS)
     for batch in valid_gen:
@@ -138,14 +141,14 @@ def do_eval(sess, Model):
             feed_dict[Model.value_decoder_x] = batch['article_value']
             feed_dict[Model.tst] = not FLAGS.is_training
         curr_eval_loss,logits=sess.run([Model.loss_val,Model.logits],feed_dict)
-        curr_acc_score = compute_label(logits, batch)
-        acc_score += curr_acc_score
+        # curr_acc_score = compute_label(logits, batch)
+        # acc_score += curr_acc_score
         eval_loss += curr_eval_loss
         eval_counter += 1
 
-    return eval_loss/float(eval_counter), acc_score/float(eval_counter)
+    return eval_loss/float(eval_counter) # acc_score/float(eval_counter)
 
-def compute_label(logits, batch):
+def compute_label(logits, batch): # TODO
     imp_pos = np.argsort(logits)
     lab_num = [ len(res['label']) for res in batch['original']]
     lab_pos = [ res['label'] for res in batch['original']]

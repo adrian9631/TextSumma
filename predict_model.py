@@ -10,11 +10,13 @@ import numpy as np
 from data_utils import *
 from textsum_model import Neuralmodel
 from gensim.models import KeyedVectors
-from rouge import Rouge
+from rouge import Rouge, FilesRouge
 
 #configuration
 FLAGS=tf.app.flags.FLAGS
 
+tf.app.flags.DEFINE_string("hyp_path","../res/hyp.txt","file of summary.")
+tf.app.flags.DEFINE_string("ref_path","../res/ref.txt","file of abstract.")
 tf.app.flags.DEFINE_string("result_path","../res/","path to store the predicted results.")
 tf.app.flags.DEFINE_string("tst_data_path","../src/neuralsum/dailymail/tst/","path of test data.")
 tf.app.flags.DEFINE_string("tst_file_path","../src/neuralsum/dailymail/tst/","file of test data.")
@@ -91,6 +93,7 @@ def main(_):
             feed_dict[Model.cur_learning] = False
             logits = sess.run(Model.logits, feed_dict=feed_dict)
             results.append(compute_score(logits, batch))
+            evaluate_file(logits, batch)
             if iteration % 500 == 0:
                 print ('Dealing with %d examples already...' % iteration)
 
@@ -98,9 +101,12 @@ def main(_):
         for idx, data in enumerate(results):
             filename = os.path.join(FLAGS.result_path, 'tst_%d.json' % idx)
             dump(filename, data)
+        print ('Counting for the rouge...')
+        scores  = evaluate_rouge(FLAGS.hyp_path, FLAGS.ref_path)
+        print (scores)
         print ('Done.')
 
-def process_file(data_path, entity_path):
+def process_file(data_path, entity_path): # TODO
     examples = []
     entitys = load(entity_path)
     with codecs.open(data_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -117,6 +123,30 @@ def process_file(data_path, entity_path):
             example['entity'] = entity_dict
             examples.append(example)
     return examples
+
+def evaluate_file(logits, batch):
+    data = batch['original']
+    score_list = []
+    pos = 0
+    for sent, score in zip(data['article'], logits[0][:len(data['article'])]):
+        score_list.append((pos, score, sent))
+        pos += 1
+    data['score'] = sorted(score_list, key=lambda x:x[1], reverse=True)
+    summary = '. '.join([highest[2] for highest in sorted(score_list[:3], key=lambda x:x[0], reverse=False)])
+    abstract = '. '.join(data['abstract'])
+
+    with open(FLAGS.hyp_path, 'a') as f:
+        f.write(summary)
+        f.write('\n')
+
+    with open(FLAGS.ref_path, 'a') as f:
+        f.write(abstract)
+        f.write('\n')
+
+def evaluate_rouge(hyp_path, ref_path):
+    files_rouge = FilesRouge(hyp_path, ref_path)
+    rouge = files_rouge.get_scores(avg=True)
+    return rouge
 
 def compute_score(logits, batch):
     data = batch['original']
