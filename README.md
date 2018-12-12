@@ -1,7 +1,7 @@
 
 TextSumma
 =
-Just give it a shot for reproducing the ACL 2016 paper [*Neural Summarization by Extracting Sentences and Words*](https://arxiv.org/abs/1603.07252).
+Just give it a shot for reproducing the ACL 2016 paper [*Neural Summarization by Extracting Sentences and Words*](https://arxiv.org/abs/1603.07252). Find original code [*here*](https://github.com/cheng6076/NeuralSum).
 
 ## Quick Start
 - **Step1 : Obtain datasets**  
